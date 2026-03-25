@@ -1,5 +1,4 @@
 # Rotor-Cuda v2.0
-![alt text](Linux.jpg "Rotor-Cuda")
 
 这是 KeyHunt v1.7 的一个修改版本……
 衷心感谢所有其代码被用于此项目的开发者。
