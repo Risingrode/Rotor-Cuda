@@ -1,66 +1,66 @@
-# Rotor-Cuda  v2.0
+# Rotor-Cuda v2.0
 ![alt text](Linux.jpg "Rotor-Cuda")
 
-This is a modified version of KeyHunt v1.7 ... 
-A lot of gratitude to all the developers whose codes has been used here  
-Also, many thanks to the friends who allowed the Rotor-Cuda version 2 to be built and tested on their servers.
+这是 KeyHunt v1.7 的一个修改版本……
+衷心感谢所有其代码被用于此项目的开发者。
+同时，也感谢那些允许在其服务器上构建和测试 Rotor-Cuda 第 2 版的朋友们。
 
 Telegram  **https://t.me/CryptoCrackersUK**
 
-## Changes :
-- Default Random 95% (252-256) bit + 5% (248-252) bit
-- Random in a given bit range (1-256)
-- Random between given bit ranges -n ? -z ?
-- Automatic creation of Rotor-Cuda_START.bat with the specified cmd parameters
-- Many small visual improvements
+## 变更：
+- 默认随机范围：95% 为 (252-256) bit，5% 为 (248-252) bit
+- 可在指定 bit 范围内随机扫描 (1-256)
+- 可在给定 bit 区间之间随机扫描：`-n ? -z ?`
+- 根据指定的命令参数自动创建 `Rotor-Cuda_START.bat`
+- 许多细小的可视化改进
 
-### To scan in (GPUs)
-- **-n ?** save checkpoint every ? minutes. (1-10000)
-- If you do not specify -n ? (search without continuing) 
-- After the Rotor-Cuda_Continue.bat file appears, you can continue from the last checkpoint.
-- To continue correctly, do not change the parameters inside the file.
-- **If you do not need to continue, DELETE the Rotor-Cuda_Continue.bat !!!** 
+### GPU 扫描说明
+- **-n ?** 每隔 ? 分钟保存一次检查点。(1-10000)
+- 如果不指定 `-n ?`，则不会启用断点续扫（一次性搜索）。
+- 当 `Rotor-Cuda_Continue.bat` 文件出现后，你可以从上一个检查点继续。
+- 若要正确续扫，请不要修改该文件中的参数。
+- **如果你不需要继续，请删除 `Rotor-Cuda_Continue.bat`！！！**
 ---
-### For Random use - r 5 (GPUs)
-- **-r ?** When you enter -r 5, it means that up to 5 billion keys are allowed to be scanned and after that, randomly selected sections will be scanned
-- **-n ?** (1-256) bit. If you do not specify -n will be the default 95% (252-256) bit + 5% (248-252) bit
-- **-z ?** (end random range must be greater than -n value) example: -n 252 -z 256
-- Random for search [puzzle](https://privatekeys.pw/puzzles/bitcoin-puzzle-tx) 71 example:
+### 随机模式使用 `-r 5`（GPU）
+- **-r ?** 输入 `-r 5` 表示最多允许扫描 50 亿个密钥，之后会改为扫描随机选取的区段。
+- **-n ?** `(1-256) bit`。如果不指定 `-n`，默认使用 95% 的 `(252-256) bit` + 5% 的 `(248-252) bit`
+- **-z ?** （随机范围结束值必须大于 `-n` 的值）例如：`-n 252 -z 256`
+- 用于搜索 [puzzle](https://privatekeys.pw/puzzles/bitcoin-puzzle-tx) 71 的随机示例：
 
-- ```./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC -r 5 --range 400000000000000000:7fffffffffffffffff 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU``` 
-- If your GPU is weaker than RTX 1080 or the driver crashes. Remove **--gpux 256,256** from the row the grid will be auto-assigned
+- `./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC -r 5 --range 400000000000000000:7fffffffffffffffff 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU`
+- 如果你的 GPU 性能低于 RTX 1080，或者驱动发生崩溃，请从命令中移除 **--gpux 256,256**，网格大小将自动分配。
 ---
-### GPU Bitcoin Multi Address mode :
-- Range: ```./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC --range 400000000:7ffffffff -i Btc-h160.bin```
-- Random: ```./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC -r 5 -i Btc-h160.bin```
+### GPU Bitcoin 多地址模式：
+- 范围扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC --range 400000000:7ffffffff -i Btc-h160.bin`
+- 随机扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC -r 5 -i Btc-h160.bin`
 ---
-### GPU Bitcoin Single Address mode :
-- Range: ```./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 400000000:7ffffffff 1PWCx5fovoEaoBowAvF5k91m2Xat9bMgwb```
-- Random: ```./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 400000000:7ffffffff -r 5 1PWCx5fovoEaoBowAvF5k91m2Xat9bMgwb```
+### GPU Bitcoin 单地址模式：
+- 范围扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 400000000:7ffffffff 1PWCx5fovoEaoBowAvF5k91m2Xat9bMgwb`
+- 随机扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 400000000:7ffffffff -r 5 1PWCx5fovoEaoBowAvF5k91m2Xat9bMgwb`
 ---
-### GPU ETHEREUM Multi Address mode :
-- Range: ```./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin eth --range 4000000:ffffffff -i eth.bin```
-- Random: ```./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin eth --rang 4000000:ffffffff -r 5 -i eth.bin```
+### GPU ETHEREUM 多地址模式：
+- 范围扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin eth --range 4000000:ffffffff -i eth.bin`
+- 随机扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin eth --rang 4000000:ffffffff -r 5 -i eth.bin`
 ---
-### GPU ETHEREUM Single Address mode :
-- Range: ```./Rotor -g --gpui 0 --gpux 256,256 -m address --coin eth --range 8000000:fffffff 0xfda5c442e76a95f96c09782f1a15d3b58e32404f```
-- Random: ```./Rotor -g --gpui 0 --gpux 256,256 -m address --coin eth --range 8000000:fffffff -r 5 0xfda5c442e76a95f96c09782f1a15d3b58e32404f```
+### GPU ETHEREUM 单地址模式：
+- 范围扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m address --coin eth --range 8000000:fffffff 0xfda5c442e76a95f96c09782f1a15d3b58e32404f`
+- 随机扫描：`./Rotor -g --gpui 0 --gpux 256,256 -m address --coin eth --range 8000000:fffffff -r 5 0xfda5c442e76a95f96c09782f1a15d3b58e32404f`
 
-****🕹Do not use non-standard values ​​for Grid size.They must be a multiple of 32****
+****🕹不要使用非标准的 Grid Size 值，必须是 32 的倍数****
 
-   |      GPU Model     |     Scanning Speed     |    Grid Size    | 
-   |-------------------|:--------------:|:------------------:|
-   |    Tesla  T4    |   600 Mkeys   |     128×256     |
-   |    RTX  3090    |   1.4 Gkeys   |     256×256     |
-   |    RTX  4090    |   3.1 Gkeys   |     256×512     |
-   |    RTX  5090    |   6.2 Gkeys   |     512×512     |
-   |    RTX  60xx    |   x.x Gkeys   |     xxx.xxx     |
+   |      GPU 型号      |      扫描速度      |    Grid Size    |
+   |-------------------|:------------------:|:---------------:|
+   |    Tesla T4       |     600 Mkeys      |     128×256     |
+   |    RTX 3090       |     1.4 Gkeys      |     256×256     |
+   |    RTX 4090       |     3.1 Gkeys      |     256×512     |
+   |    RTX 5090       |     6.2 Gkeys      |     512×512     |
+   |    RTX 60xx       |     x.x Gkeys      |     xxx.xxx     |
 
 
 ---
-### Range Scan Sequentially :
+### 顺序范围扫描：
 ```
-$./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 1000000000:1fffffffff 14iXhn8bGajVWegZHJ18vJLHhntcpL4dex
+$./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 1000000000:1fffffffff 14iXhn8bGajVWegZHJ18vJLHhntcpL4dex
 
   Rotor-Cuda v2.0  Mehdi256
 
@@ -75,36 +75,36 @@ $./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 100
   OUTPUT FILE  : Found.txt
 
   Start Time   : Sun Sep 21 06:51:02 2025
- 
+
   Global start : 1000000000 (37 bit)
   Global end   : 1FFFFFFFFF (37 bit)
   Global range : FFFFFFFFF (36 bit)
 
   GPU Mode     : GPU #0 NVIDIA GeForce RTX 4090 (128x0 cores) Grid (256x256)
 
-  Rotor info   : Divide the range FFFFFFFFF (278 bit) into GPU 65536 threads 
+  Rotor info   : Divide the range FFFFFFFFF (278 bit) into GPU 65536 threads
 
-  Thread 00000 : 1000000000 -> 10000FFFFF 
-  Thread 00001 : 10000FFFFF -> 10001FFFFE 
-  Thread 00002 : 10001FFFFE -> 10002FFFFD 
-  Thread 00003 : 10002FFFFD -> 10003FFFFC 
-  Thread 65534 : 1FFFDF0002 -> 1FFFEF0001 
-  Thread 65535 : 1FFFEF0001 -> 1FFFFF0000 
-  Thread 65536 : 1FFFFF0000 -> 20000EFFFF 
+  Thread 00000 : 1000000000 -> 10000FFFFF
+  Thread 00001 : 10000FFFFF -> 10001FFFFE
+  Thread 00002 : 10001FFFFE -> 10002FFFFD
+  Thread 00003 : 10002FFFFD -> 10003FFFFC
+  Thread 65534 : 1FFFDF0002 -> 1FFFEF0001
+  Thread 65535 : 1FFFEF0001 -> 1FFFFF0000
+  Thread 65536 : 1FFFFF0000 -> 20000EFFFF
 
-  [00:00:07] [15D98444CC] [F: 0] [00:01:07] [C: 36.132813 %] [GPU: 3.60 Gk/s] [T: 24,830,279,680]  
+  [00:00:07] [15D98444CC] [F: 0] [00:01:07] [C: 36.132813 %] [GPU: 3.60 Gk/s] [T: 24,830,279,680]
   ================================================================================================
   PubAddress: 14iXhn8bGajVWegZHJ18vJLHhntck8EEPa
   Priv (WIF): KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9NRuiZFAX5a6P5M
   Priv (HEX): 1757756A93
   PubK (HEX): 027D2C03C3EF0AEC70F2C7E1E75454A5DFDD0E1ADEA670C1B3A4643C48AD0F1255
 
-  [00:00:07] [16008246F6] [F: 1] [00:01:06] [C: 37.109375 %] [GPU: 3.61 Gk/s] [T: 25,501,368,320] 
-   
+  [00:00:07] [16008246F6] [F: 1] [00:01:06] [C: 37.109375 %] [GPU: 3.61 Gk/s] [T: 25,501,368,320]
+
 ```
-### Range Scan Randomly : 
+### 随机范围扫描：
 ```
-$./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 1000000000:1fffffffff -r 5 14iXhn8bGajVWegZHJ18vJLHhntcpL4dex
+$./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 1000000000:1fffffffff -r 5 14iXhn8bGajVWegZHJ18vJLHhntcpL4dex
 
   Rotor-Cuda v2.0  Mehdi256
 
@@ -122,20 +122,20 @@ $./Rotor -g --gpui 0 --gpux 256,256 -m address --coin BTC --range 100
 
   GPU Mode     : GPU #0 NVIDIA GeForce RTX 4090 (128x0 cores) Grid (256x256)
   Base Key     : Randomly changes 65536 start Private keys every 5,000,000,000 on the counter
-  ROTOR Random : Min 37 (bit) 1000000000 
-  ROTOR Random : Max 37 (bit) 1FFFFFFFFF 
+  ROTOR Random : Min 37 (bit) 1000000000
+  ROTOR Random : Max 37 (bit) 1FFFFFFFFF
 
-  |00:00:27| R : 17 | 17E005E2C7 | F : 0 | GPU: 3.57 Gk/s | T: 95,428,804,608 |  
+  |00:00:27| R : 17 | 17E005E2C7 | F : 0 | GPU: 3.57 Gk/s | T: 95,428,804,608 |
   ================================================================================================
   PubAddress: 14iXhn8bGajVWegZHJ18vJLHhntck8EEPa
   Priv (WIF): KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9NRuiZFAX5a6P5M
   Priv (HEX): 1757756A93
   PubK (HEX): 027D2C03C3EF0AEC70F2C7E1E75454A5DFDD0E1ADEA670C1B3A4643C48AD0F1255
 
-  |00:00:27| R : 17 | 17E00605C5 | F : 1 | GPU: 3.57 Gk/s | T: 96,099,893,248 |   
+  |00:00:27| R : 17 | 17E00605C5 | F : 1 | GPU: 3.57 Gk/s | T: 96,099,893,248 |
 
 ```
-### Range Scan with Multi Address : 
+### 多地址范围扫描：
 ```
 $./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC --range 1000000000:1fffffffff -r 5 -i Puzzles_h160.bin
 
@@ -163,27 +163,27 @@ $./Rotor -g --gpui 0 --gpux 256,256 -m addresses --coin BTC --range 1000000000:1
   Bytes        : 1158 (0 MB)
   Hash funcs   : 20
 
-  Site         : https://github.com/Mehdi256/Rotor-Cuda 
-  Donate       : bc1qdfaj5zyvfkr7wtzaa72vqxzztpl2tz7g5zk5ug 
+  Site         : https://github.com/Mehdi256/Rotor-Cuda
+  Donate       : bc1qdfaj5zyvfkr7wtzaa72vqxzztpl2tz7g5zk5ug
 
   Start Time   : Sun Sep 21 18:06:29 2025
 
   GPU Mode     : GPU #0 NVIDIA GeForce RTX 4090 (128x0 cores) Grid (256x256)
   Base Key     : Randomly changes 65536 start Private keys every 5,000,000,000 on the counter
-  ROTOR Random : Min 37 (bit) 1000000000 
-  ROTOR Random : Max 37 (bit) 1FFFFFFFFF 
+  ROTOR Random : Min 37 (bit) 1000000000
+  ROTOR Random : Max 37 (bit) 1FFFFFFFFF
 
-  |00:00:18| R : 15 | 167ABCD68F | F : 0 | GPU: 3.53 Gk/s | T: 81,604,378,624 |  
+  |00:00:18| R : 15 | 167ABCD68F | F : 0 | GPU: 3.53 Gk/s | T: 81,604,378,624 |
   ================================================================================================
   PubAddress: 14iXhn8bGajVWegZHJ18vJLHhntcnHyduN
   Priv (WIF): KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9NRuiZFAX5a6P5M
   Priv (HEX): 1757756A93
   PubK (HEX): 027D2C03C3EF0AEC70F2C7E1E75454A5DFDD0E1ADEA670C1B3A4643C48AD0F1255
 
-  |00:00:18| R : 15 | 16F55BF6A1 | F : 1 | GPU: 3.53 Gk/s | T: 82,328,530,944 | 
+  |00:00:18| R : 15 | 16F55BF6A1 | F : 1 | GPU: 3.53 Gk/s | T: 82,328,530,944 |
 
 ```
-### Puzzle 71 Scan with Multi GPU : 
+### 使用多 GPU 扫描 Puzzle 71：
 ```
 $./Rotor -g --gpui 0,1,2 --gpux 256,256,256,256,256,256 -m address --coin BTC --range 400000000000000000:7fffffffffffffffff -r 15 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU
 
@@ -217,50 +217,42 @@ $./Rotor -g --gpui 0,1,2 --gpux 256,256,256,256,256,256 -m address --coin BTC --
   ROTOR Random : Max 71 (bit) 7FFFFFFFFFFFFFFFFF
 
   |00:24:09| R : 1250 | 61AE654C8F21375303 | F : 0 | GPU: 10.96 Gk/s | T: 18,874,233,782,272 |
-  
-  ```
+
+```
 # Linux
-- **🕹Note : Do not edit the Makefile in this version (No edit Makefile)**
+- **🕹注意：此版本不要编辑 `Makefile`（不要修改 `Makefile`）**
 
-- update & Install libgmp: **sudo apt update**```**sudo apt install -y libgmp-dev**
+- 更新并安装 `libgmp`：
+  - `sudo apt update`
+  - `sudo apt install -y libgmp-dev`
 
-- CUDA       = /usr/local/cuda-10.0 ~ 12.xx   (don't use CUDA 13 yet, only CUDA versions 10_12.xx) 
+- CUDA = `/usr/local/cuda-10.0 ~ 12.xx`（暂时不要使用 CUDA 13，只支持 10_12.xx 版本）
 
-- CXXCUDA    = /usr/bin/g++
+- CXXCUDA = `/usr/bin/g++`
 
-- To build CPU-only version :
+- 构建仅 CPU 版本：
 
   ```sh
-  
-   make all
-  
+  make all
   ```
-- To build with CUDA (GPU)
+- 使用 CUDA（GPU）构建：
 
-- To get info about various Nvidia GPU CCAP value see : 
-  
-   #### https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards
+- 查看各种 Nvidia GPU 的 CCAP 值信息：
+
+  https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards
 
   ```sh
-
-   cd Rotor-Cuda 
+   cd Rotor-Cuda
 
    make gpu=1 CCAP=75 all     [SM_75]
 
    make gpu=1 CCAP=89 all     [SM_89]
 
-   make gpu=1 CCAP=100 all   [SM_100]
-
+   make gpu=1 CCAP=100 all    [SM_100]
   ```
 
-## License
-- Rotor-Cuda is licensed under GPLv3.0
+## 许可证
+- Rotor-Cuda 采用 GPLv3.0 许可证
 
-## Donation
+## 捐赠
 - BTC: bc1qdfaj5zyvfkr7wtzaa72vqxzztpl2tz7g5zk5ug
-
-## __Disclaimer__
-  ALL THE CODES, PROGRAM AND INFORMATION ARE FOR EDUCATIONAL PURPOSES ONLY. USE IT AT YOUR OWN RISK. THE         DEVELOPER WILL NOT BE RESPONSIBLE FOR ANY LOSS, DAMAGE OR CLAIM ARISING FROM USING THIS PROGRAM.
-
-## Good luck hunting ;) 
-
