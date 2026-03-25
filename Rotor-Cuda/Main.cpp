@@ -21,44 +21,45 @@ bool should_exit = false;
 // ----------------------------------------------------------------------------
 void usage()
 {
-	printf("Rotor-Cuda [OPTIONS...] [TARGETS]\n");
-	printf("Where TARGETS is one address/xpont, or multiple hashes/xpoints file\n\n");
+	printf("Rotor-Cuda [选项...] [目标]\n");
+	printf("其中 TARGETS 可以是单个地址/xpoint，或者包含多个哈希/xpoint 的文件\n\n");
 
-	printf("-h, --help                                   : Display this message\n");
-	printf("-c, --check                                : Check the working of the codes\n");
-	printf("-u, --uncomp                            : Search uncompressed points\n");
-	printf("-b, --both                                   : Search both uncompressed or compressed points\n");
-	printf("-g, --gpu                                    : Enable GPU calculation\n");
-	printf("--gpui  GPU ids: 0,1,2,...         : List of GPU(s) to use, default is 0\n");
-	printf("--gpux gridsize: g0x,g0y,g1x,g1y,...     : Specify GPU(s) kernel gridsize, default is 8*(Device MP count),128\n");
-	printf("-t, --thread N                            : Specify number of CPU thread, default is number of core\n");
-	printf("-i, --in FILE                                : Read rmd160 hashes or xpoints from FILE, should be in binary format with  .bin\n");
-	printf("-o, --out FILE                            : Write keys to FILE, default: Found.txt\n");
-	printf("-m, --mode MODE                   : Specify search mode where MODE is\n");
-	printf("                                                      Address  : for single address\n");
-	printf("                                                      Addresses: for multiple hashes/addresses\n");
-	printf("                                                      Xpoint   : for single xpoint\n");
-	printf("                                                      Xpoints : for multiple xpoints\n");
-	printf("--coin BTC/ETH                      : Specify Coin name to search\n");
-	printf("                                                      BTC: available mode :-\n");
+	printf("-h, --help                                   : 显示此帮助信息\n");
+	printf("-c, --check                                  : 检查代码是否正常工作\n");
+	printf("-u, --uncomp                                 : 搜索未压缩点\n");
+	printf("-b, --both                                   : 同时搜索未压缩点和压缩点\n");
+	printf("-g, --gpu                                    : 启用 GPU 计算\n");
+	printf("--gpui  GPU ids: 0,1,2,...                   : 要使用的 GPU 列表，默认是 0\n");
+	printf("--gpux gridsize: g0x,g0y,g1x,g1y,...         : 指定 GPU 内核网格大小，默认是 8*(设备 MP 数),128\n");
+	printf("-t, --thread N                               : 指定 CPU 线程数，默认是 CPU 核心数\n");
+	printf("-i, --in FILE                                : 从 FILE 读取 rmd160 哈希或 xpoint，文件应为 .bin 二进制格式\n");
+	printf("-o, --out FILE                               : 将密钥写入 FILE，默认：Found.txt\n");
+	printf("-m, --mode MODE                              : 指定搜索模式，其中 MODE 为\n");
+	printf("                                                      Address  : 单个地址\n");
+	printf("                                                      Addresses: 多个哈希/地址\n");
+	printf("                                                      Xpoint   : 单个 xpoint\n");
+	printf("                                                      Xpoints  : 多个 xpoint\n");
+	printf("--coin BTC/ETH                               : 指定要搜索的币种名称\n");
+	printf("                                                      BTC: 可用模式如下：\n");
 	printf("                                                      ADDRESS, ADDRESSES, XPOINT, XPOINTS\n");
-	printf("                                                      ETH: available mode :-\n");
+	printf("                                                      ETH: 可用模式如下：\n");
 	printf("                                                      ADDRESS, ADDRESSES\n");
-	printf("-l, --list.                                      : List Cuda enabled devices\n");
-	printf("--range KEYSPACE                  : Specify the range:\n");
+	printf("-l, --list                                   : 列出支持 CUDA 的设备\n");
+	printf("--range KEYSPACE                             : 指定范围：\n");
 	printf("                                                      START:END\n");
 	printf("                                                      START:+COUNT\n");
 	printf("                                                      START\n");
 	printf("                                                      :END\n");
 	printf("                                                      :+COUNT\n");
-	printf("                                                      Where START, END, COUNT are in hex format\n");
-	printf("-r, --rkey Rkey                            : Reloads random start Private key every (-r 10 = 10.000.000.000), default is disabled\n");
-	printf("-c, --check                                 : Check the working of the codes\n");
-	printf("-n, --next                                    : Range mode GPU save checkpoints every -n ? minutes (1-10000) Default: false\n");
-	printf("-n, --next                                    : Random mode: What bit range to randomize? -n 1-256 Example -n 252 Default: 252-256 bit\n");
-	printf("-z, --zet                                       : Random mode: End range for random. Example -n 71 -z 74 (random in puzzles 71,72,73,74 bit) Default: false\n");
-	printf("-d, --display                               : Disable all informers, compact version for many GPUs. Use -d 0 Default -d 1 (display all) \n");
+	printf("                                                      其中 START、END、COUNT 均为十六进制格式\n");
+	printf("-r, --rkey Rkey                              : 每隔一段数量重新加载随机起始私钥（例如 -r 10 = 10,000,000,000），默认禁用\n");
+	printf("-c, --check                                  : 检查代码是否正常工作\n");
+	printf("-n, --next                                   : 范围模式下，GPU 每隔 -n ? 分钟保存检查点（1-10000），默认：false\n");
+	printf("-n, --next                                   : 随机模式：指定随机 bit 范围。-n 1-256，例如 -n 252，默认：252-256 bit\n");
+	printf("-z, --zet                                    : 随机模式：随机结束范围。例如 -n 71 -z 74（在 71、72、73、74 bit 谜题范围内随机），默认：false\n");
+	printf("-d, --display                                : 禁用所有信息显示，适用于多 GPU 的精简输出。使用 -d 0，默认 -d 1（显示全部）\n");
 }
+
 
 // ----------------------------------------------------------------------------
 
