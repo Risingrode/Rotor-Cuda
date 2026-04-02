@@ -36,6 +36,17 @@ if [[ ! -x "$ROTOR_BIN" ]]; then
   exit 1
 fi
 
+if [[ "$USE_GPU" == "1" ]]; then
+  if ! ldd "$ROTOR_BIN" 2>/dev/null | grep -q 'libcudart'; then
+    echo "[!] Rotor binary does not appear to be built with GPU support." >&2
+    echo "[!] Current binary is missing libcudart dependency." >&2
+    echo "[!] Rebuild on the target host, e.g.:" >&2
+    echo "    make clean" >&2
+    echo "    make gpu=1 CCAP=89 all" >&2
+    exit 1
+  fi
+fi
+
 python3 - <<'PY'
 import os, sys
 
