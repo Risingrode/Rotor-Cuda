@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <sstream>
@@ -224,6 +225,19 @@ std::string FormatDouble(double value) {
     char buffer[64];
     std::snprintf(buffer, sizeof(buffer), "%.4f", value);
     return std::string(buffer);
+}
+
+int ReadEnvIntOrDefault(const char* name, int defaultValue) {
+    const char* value = std::getenv(name);
+    if (value == NULL || *value == '\0') {
+        return defaultValue;
+    }
+    char* end = NULL;
+    long parsed = std::strtol(value, &end, 10);
+    if (end == value) {
+        return defaultValue;
+    }
+    return static_cast<int>(parsed);
 }
 
 int Popcount16(uint16_t value) {
@@ -930,6 +944,17 @@ private:
         while (startPos < suffixLen_ && choices_[startPos].size() <= 1) {
             startPos++;
         }
+
+        int hostPrefixOverride = ReadEnvIntOrDefault("ROTOR_MASKED_GPU_HOST_PREFIX", -1);
+        if (hostPrefixOverride >= 0) {
+            size_t forced = static_cast<size_t>(hostPrefixOverride);
+            if (forced > suffixLen_) {
+                forced = suffixLen_;
+            }
+            if (forced > startPos) {
+                startPos = forced;
+            }
+        }
         taskDepth_ = startPos;
 
         for (size_t pos = 0; pos < taskDepth_; pos++) {
@@ -1252,21 +1277,34 @@ private:
     }
 
 #ifdef WITHGPU
-    MaskedGPUCharsetConfig BuildGpuCharsetConfig() const {
+    MaskedGPUCharsetConfig BuildGpuCharsetConfig() {
         MaskedGPUCharsetConfig cfg = {};
         cfg.suffixLen = static_cast<uint32_t>(suffixLen_);
         cfg.compMode = static_cast<uint32_t>(compMode_);
         cfg.coinType = static_cast<uint32_t>(coinType_);
         cfg.forbidTripleSame = config_.forbidTripleSame ? 1 : 0;
         cfg.forbidTripleRun = config_.forbidTripleRun ? 1 : 0;
+        cfg.gpuStartPos = static_cast<uint8_t>(taskDepth_);
+        cfg.segmentComboCap = MASKED_GPU_SEGMENT_COMBO_CAP;
         std::memcpy(cfg.target, &targetBytes_[0], 20);
 
         for (size_t pos = 0; pos < suffixLen_; pos++) {
             cfg.radices[pos] = static_cast<uint8_t>(choices_[pos].size());
+            cfg.radixShift[pos] = 0xFFU;
             cfg.bound[pos] = static_cast<uint8_t>(HexValue(maxValidHex_[prefixLen_ + pos]));
             cfg.minValue[pos] = 0xFFU;
             cfg.maxValue[pos] = 0U;
             uint8_t posFlags = 0U;
+
+            size_t radix = choices_[pos].size();
+            if ((radix & (radix - 1U)) == 0U) {
+                uint8_t shift = 0U;
+                while (((size_t)1U << shift) < radix) {
+                    shift++;
+                }
+                cfg.radixShift[pos] = shift;
+            }
+
             for (size_t j = 0; j < choices_[pos].size(); j++) {
                 cfg.values[pos][j] = choices_[pos][j].value;
                 cfg.minValue[pos] = std::min<uint8_t>(cfg.minValue[pos], choices_[pos][j].value);
@@ -1276,10 +1314,6 @@ private:
                 }
                 else {
                     posFlags |= MASKED_GPU_POS_HAS_NONZERO;
-                    for (int k = 0; k < 4; k++) {
-                        cfg.pointX[pos][j][k] = choices_[pos][j].point.x.bits64[k];
-                        cfg.pointY[pos][j][k] = choices_[pos][j].point.y.bits64[k];
-                    }
                 }
             }
 
@@ -1326,6 +1360,99 @@ private:
                 cfg.invalidNextMask[last2 + 1][last1 + 1] = mask;
             }
         }
+
+        int segmentCap = ReadEnvIntOrDefault("ROTOR_MASKED_GPU_SEGMENT_CAP", MASKED_GPU_SEGMENT_COMBO_CAP);
+        if (segmentCap <= 0 || segmentCap > MASKED_GPU_SEGMENT_COMBO_CAP) {
+            segmentCap = MASKED_GPU_SEGMENT_COMBO_CAP;
+        }
+        cfg.segmentComboCap = static_cast<uint8_t>(segmentCap);
+
+        size_t segmentIndex = 0;
+        size_t pos = taskDepth_;
+        while (pos < suffixLen_ && segmentIndex < MASKED_GPU_MAX_SEGMENTS) {
+            size_t start = pos;
+            size_t segLen = 0;
+            size_t segRadix = 1;
+            while (pos < suffixLen_) {
+                size_t radix = choices_[pos].size();
+                if (segLen > 0 && segRadix > (static_cast<size_t>(segmentCap) / radix)) {
+                    break;
+                }
+                segRadix *= radix;
+                pos++;
+                segLen++;
+            }
+
+            if (segLen == 0) {
+                throw std::runtime_error("Internal error while building GPU segment plan");
+            }
+
+            cfg.segmentStart[segmentIndex] = static_cast<uint8_t>(start);
+            cfg.segmentLen[segmentIndex] = static_cast<uint8_t>(segLen);
+            cfg.segmentRadix[segmentIndex] = static_cast<uint8_t>(segRadix);
+            cfg.segmentRadixShift[segmentIndex] = 0xFFU;
+            if ((segRadix & (segRadix - 1U)) == 0U) {
+                uint8_t shift = 0U;
+                while (((size_t)1U << shift) < segRadix) {
+                    shift++;
+                }
+                cfg.segmentRadixShift[segmentIndex] = shift;
+            }
+
+            for (size_t combo = 0; combo < segRadix; combo++) {
+                size_t decode = combo;
+                Point segmentPoint;
+                segmentPoint.Clear();
+                bool segmentPointSet = false;
+
+                for (size_t rel = segLen; rel-- > 0;) {
+                    size_t absolutePos = start + rel;
+                    size_t radix = choices_[absolutePos].size();
+                    size_t slot = decode % radix;
+                    decode /= radix;
+                    const PositionChoice& choice = choices_[absolutePos][slot];
+                    cfg.segmentValues[segmentIndex][combo][rel] = choice.value;
+                }
+
+                for (size_t rel = 0; rel < segLen; rel++) {
+                    const uint8_t value = cfg.segmentValues[segmentIndex][combo][rel];
+                    if (value == 0U) {
+                        continue;
+                    }
+                    const std::vector<PositionChoice>& posChoices = choices_[start + rel];
+                    const PositionChoice* selected = NULL;
+                    for (size_t slot = 0; slot < posChoices.size(); slot++) {
+                        if (posChoices[slot].value == value) {
+                            selected = &posChoices[slot];
+                            break;
+                        }
+                    }
+                    if (selected == NULL) {
+                        throw std::runtime_error("Internal error while building GPU segment point table");
+                    }
+                    if (segmentPointSet) {
+                        Point addPoint = selected->point;
+                        segmentPoint = secp_.Add2(segmentPoint, addPoint);
+                    }
+                    else {
+                        segmentPoint = selected->point;
+                        segmentPointSet = true;
+                    }
+                }
+
+                cfg.segmentPointSet[segmentIndex][combo] = segmentPointSet ? 1U : 0U;
+                if (segmentPointSet) {
+                    segmentPoint.Reduce();
+                    for (int k = 0; k < 4; k++) {
+                        cfg.segmentPointX[segmentIndex][combo][k] = segmentPoint.x.bits64[k];
+                        cfg.segmentPointY[segmentIndex][combo][k] = segmentPoint.y.bits64[k];
+                    }
+                }
+            }
+
+            segmentIndex++;
+        }
+        cfg.segmentCount = static_cast<uint8_t>(segmentIndex);
         return cfg;
     }
 

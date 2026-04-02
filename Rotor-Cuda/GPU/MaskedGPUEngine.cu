@@ -31,7 +31,12 @@ struct DevicePoint {
 struct MaskedGPUHotConfig {
     uint32_t suffixLen;
     uint32_t target[5];
+    uint8_t gpuStartPos;
+    uint8_t segmentCount;
+    uint8_t segmentComboCap;
+    uint8_t reserved0;
     uint8_t radices[MASKED_GPU_MAX_SUFFIX];
+    uint8_t radixShift[MASKED_GPU_MAX_SUFFIX];
     uint8_t bound[MASKED_GPU_MAX_SUFFIX];
     uint8_t minValue[MASKED_GPU_MAX_SUFFIX];
     uint8_t maxValue[MASKED_GPU_MAX_SUFFIX];
@@ -39,6 +44,10 @@ struct MaskedGPUHotConfig {
     uint8_t nonZeroPossibleFromPos[MASKED_GPU_MAX_SUFFIX + 1];
     uint8_t values[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES];
     uint16_t invalidNextMask[MASKED_GPU_RULE_DIM][MASKED_GPU_RULE_DIM];
+    uint8_t segmentStart[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentLen[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentRadix[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentRadixShift[MASKED_GPU_MAX_SEGMENTS];
 };
 
 __device__ __constant__ MaskedGPUHotConfig c_maskedHotCfg;
@@ -188,35 +197,39 @@ __device__ __forceinline__ uint16_t GetInvalidNextMask(int last2, int last1) {
     return c_maskedHotCfg.invalidNextMask[last2 + 1][last1 + 1];
 }
 
-__device__ __forceinline__ int PointTableIndex(int pos, int slot) {
-    return (((pos * MASKED_GPU_MAX_CHOICES) + slot) * 4);
+__device__ __forceinline__ int SegmentPointTableIndex(int segment, int combo) {
+    return (((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * 4);
 }
 
-__device__ __forceinline__ void LoadPointXY(const uint64_t* pointXTable,
-                                            const uint64_t* pointYTable,
-                                            int pos,
-                                            int slot,
-                                            uint64_t* x,
-                                            uint64_t* y) {
-    const int idx = PointTableIndex(pos, slot);
-    x[0] = __ldg(pointXTable + idx + 0);
-    x[1] = __ldg(pointXTable + idx + 1);
-    x[2] = __ldg(pointXTable + idx + 2);
-    x[3] = __ldg(pointXTable + idx + 3);
-    y[0] = __ldg(pointYTable + idx + 0);
-    y[1] = __ldg(pointYTable + idx + 1);
-    y[2] = __ldg(pointYTable + idx + 2);
-    y[3] = __ldg(pointYTable + idx + 3);
+__device__ __forceinline__ int SegmentValueTableIndex(int segment, int combo, int offset) {
+    return (((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * MASKED_GPU_MAX_SEGMENT_LEN) + offset;
 }
 
-__device__ __forceinline__ void AddChoicePoint(DevicePoint* point,
-                                               const uint64_t* pointXTable,
-                                               const uint64_t* pointYTable,
-                                               int pos,
-                                               int slot) {
+__device__ __forceinline__ void LoadSegmentPointXY(const uint64_t* segmentPointXTable,
+                                                   const uint64_t* segmentPointYTable,
+                                                   int segment,
+                                                   int combo,
+                                                   uint64_t* x,
+                                                   uint64_t* y) {
+    const int idx = SegmentPointTableIndex(segment, combo);
+    x[0] = __ldg(segmentPointXTable + idx + 0);
+    x[1] = __ldg(segmentPointXTable + idx + 1);
+    x[2] = __ldg(segmentPointXTable + idx + 2);
+    x[3] = __ldg(segmentPointXTable + idx + 3);
+    y[0] = __ldg(segmentPointYTable + idx + 0);
+    y[1] = __ldg(segmentPointYTable + idx + 1);
+    y[2] = __ldg(segmentPointYTable + idx + 2);
+    y[3] = __ldg(segmentPointYTable + idx + 3);
+}
+
+__device__ __forceinline__ void AddSegmentPoint(DevicePoint* point,
+                                                const uint64_t* segmentPointXTable,
+                                                const uint64_t* segmentPointYTable,
+                                                int segment,
+                                                int combo) {
     uint64_t px[4];
     uint64_t py[4];
-    LoadPointXY(pointXTable, pointYTable, pos, slot, px, py);
+    LoadSegmentPointXY(segmentPointXTable, segmentPointYTable, segment, combo, px, py);
     AddAffine(point, px, py);
 }
 
@@ -270,8 +283,10 @@ template<int CoinType, int CompMode>
 __global__ void masked_search_kernel(uint32_t* foundCount,
                                      MaskedGPUHit* foundHits,
                                      uint32_t maxFound,
-                                     const uint64_t* pointXTable,
-                                     const uint64_t* pointYTable) {
+                                     const uint8_t* segmentPointSetTable,
+                                     const uint8_t* segmentValueTable,
+                                     const uint64_t* segmentPointXTable,
+                                     const uint64_t* segmentPointYTable) {
     const uint64_t globalIdx = c_maskedTask.batchStart +
         (uint64_t)(blockIdx.x * blockDim.x + threadIdx.x);
 
@@ -284,12 +299,25 @@ __global__ void masked_search_kernel(uint32_t* foundCount,
         return;
     }
 
-    uint8_t choiceSlots[MASKED_GPU_MAX_SUFFIX];
+    uint8_t segmentCombos[MASKED_GPU_MAX_SEGMENTS];
     uint64_t decode = globalIdx;
-    for (int pos = (int)c_maskedHotCfg.suffixLen - 1; pos >= (int)c_maskedTask.startPos; --pos) {
-        const uint8_t radix = c_maskedHotCfg.radices[pos];
-        choiceSlots[pos] = (uint8_t)(decode % (uint64_t)radix);
-        decode /= (uint64_t)radix;
+    for (int segment = (int)c_maskedHotCfg.segmentCount - 1; segment >= 0; --segment) {
+        const uint8_t shift = c_maskedHotCfg.segmentRadixShift[segment];
+        if (shift != 0xFFU) {
+            if (shift == 0U) {
+                segmentCombos[segment] = 0U;
+            }
+            else {
+                const uint64_t mask = (1ULL << shift) - 1ULL;
+                segmentCombos[segment] = (uint8_t)(decode & mask);
+                decode >>= shift;
+            }
+        }
+        else {
+            const uint8_t radix = c_maskedHotCfg.segmentRadix[segment];
+            segmentCombos[segment] = (uint8_t)(decode % (uint64_t)radix);
+            decode /= (uint64_t)radix;
+        }
     }
 
     DevicePoint point;
@@ -303,45 +331,45 @@ __global__ void masked_search_kernel(uint32_t* foundCount,
     int cmpState = (int)c_maskedTask.cmpState;
     bool hasNonZero = c_maskedTask.hasNonZero != 0U;
 
-    for (int pos = (int)c_maskedTask.startPos; pos < (int)c_maskedHotCfg.suffixLen; ++pos) {
-        const uint8_t slot = choiceSlots[pos];
-        const uint8_t value = c_maskedHotCfg.values[pos][slot];
-        const uint16_t invalidMask = GetInvalidNextMask(last2, last1);
-        if ((invalidMask & (uint16_t)(1U << value)) != 0U) {
-            return;
-        }
+    for (int segment = 0; segment < (int)c_maskedHotCfg.segmentCount; ++segment) {
+        const uint8_t combo = segmentCombos[segment];
+        const int startPos = (int)c_maskedHotCfg.segmentStart[segment];
+        const int segLen = (int)c_maskedHotCfg.segmentLen[segment];
 
-        const uint8_t posFlags = c_maskedHotCfg.posFlags[pos];
-        if (cmpState == 0) {
-            if ((posFlags & MASKED_GPU_POS_ALL_GT_BOUND) != 0U) {
+        for (int offset = 0; offset < segLen; ++offset) {
+            const int pos = startPos + offset;
+            const uint8_t value = segmentValueTable[SegmentValueTableIndex(segment, combo, offset)];
+            const uint16_t invalidMask = GetInvalidNextMask(last2, last1);
+            if ((invalidMask & (uint16_t)(1U << value)) != 0U) {
                 return;
             }
-            if ((posFlags & MASKED_GPU_POS_ALL_LT_BOUND) != 0U) {
-                cmpState = -1;
-            }
-            else if ((posFlags & MASKED_GPU_POS_ALL_EQ_BOUND) == 0U) {
-                const uint8_t bound = c_maskedHotCfg.bound[pos];
-                if (value > bound) {
+
+            const uint8_t posFlags = c_maskedHotCfg.posFlags[pos];
+            if (cmpState == 0) {
+                if ((posFlags & MASKED_GPU_POS_ALL_GT_BOUND) != 0U) {
                     return;
                 }
-                if (value < bound) {
+                if ((posFlags & MASKED_GPU_POS_ALL_LT_BOUND) != 0U) {
                     cmpState = -1;
                 }
+                else if ((posFlags & MASKED_GPU_POS_ALL_EQ_BOUND) == 0U) {
+                    const uint8_t bound = c_maskedHotCfg.bound[pos];
+                    if (value > bound) {
+                        return;
+                    }
+                    if (value < bound) {
+                        cmpState = -1;
+                    }
+                }
             }
+
+            last2 = last1;
+            last1 = (int)value;
         }
 
-        last2 = last1;
-        last1 = (int)value;
-
-        if ((posFlags & MASKED_GPU_POS_HAS_NONZERO) != 0U) {
-            if ((posFlags & MASKED_GPU_POS_HAS_ZERO) == 0U) {
-                AddChoicePoint(&point, pointXTable, pointYTable, pos, slot);
-                hasNonZero = true;
-            }
-            else if (value != 0U) {
-                AddChoicePoint(&point, pointXTable, pointYTable, pos, slot);
-                hasNonZero = true;
-            }
+        if (segmentPointSetTable[(segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo] != 0U) {
+            AddSegmentPoint(&point, segmentPointXTable, segmentPointYTable, segment, combo);
+            hasNonZero = true;
         }
     }
 
@@ -404,8 +432,10 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
     , outputCountPinned_(NULL)
     , outputHits_(NULL)
     , outputHitsPinned_(NULL)
-    , pointX_(NULL)
-    , pointY_(NULL)
+    , segmentPointSet_(NULL)
+    , segmentValues_(NULL)
+    , segmentPointX_(NULL)
+    , segmentPointY_(NULL)
     , compMode_(config.compMode)
     , coinType_(config.coinType)
     , stream_(NULL)
@@ -444,17 +474,26 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
     CudaSafeCall(cudaMalloc((void**)&outputHits_, sizeof(MaskedGPUHit) * maxFound_));
     CudaSafeCall(cudaHostAlloc(&outputHitsPinned_, sizeof(MaskedGPUHit) * maxFound_, cudaHostAllocDefault));
 
-    const size_t pointTableWords = (size_t)MASKED_GPU_MAX_SUFFIX * (size_t)MASKED_GPU_MAX_CHOICES * 4U;
-    const size_t pointBytes = pointTableWords * sizeof(uint64_t);
-    CudaSafeCall(cudaMalloc((void**)&pointX_, pointBytes));
-    CudaSafeCall(cudaMalloc((void**)&pointY_, pointBytes));
-    CudaSafeCall(cudaMemcpyAsync(pointX_, &config.pointX[0][0][0], pointBytes, cudaMemcpyHostToDevice, stream_));
-    CudaSafeCall(cudaMemcpyAsync(pointY_, &config.pointY[0][0][0], pointBytes, cudaMemcpyHostToDevice, stream_));
+    const size_t segmentPointSetBytes = sizeof(config.segmentPointSet);
+    const size_t segmentValueBytes = sizeof(config.segmentValues);
+    const size_t segmentPointBytes = sizeof(config.segmentPointX);
+    CudaSafeCall(cudaMalloc((void**)&segmentPointSet_, segmentPointSetBytes));
+    CudaSafeCall(cudaMalloc((void**)&segmentValues_, segmentValueBytes));
+    CudaSafeCall(cudaMalloc((void**)&segmentPointX_, segmentPointBytes));
+    CudaSafeCall(cudaMalloc((void**)&segmentPointY_, segmentPointBytes));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointSet_, &config.segmentPointSet[0][0], segmentPointSetBytes, cudaMemcpyHostToDevice, stream_));
+    CudaSafeCall(cudaMemcpyAsync(segmentValues_, &config.segmentValues[0][0][0], segmentValueBytes, cudaMemcpyHostToDevice, stream_));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointX_, &config.segmentPointX[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, stream_));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointY_, &config.segmentPointY[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, stream_));
 
     MaskedGPUHotConfig hot = {};
     hot.suffixLen = config.suffixLen;
     std::memcpy(hot.target, config.target, sizeof(hot.target));
+    hot.gpuStartPos = config.gpuStartPos;
+    hot.segmentCount = config.segmentCount;
+    hot.segmentComboCap = config.segmentComboCap;
     std::memcpy(hot.radices, config.radices, sizeof(hot.radices));
+    std::memcpy(hot.radixShift, config.radixShift, sizeof(hot.radixShift));
     std::memcpy(hot.bound, config.bound, sizeof(hot.bound));
     std::memcpy(hot.minValue, config.minValue, sizeof(hot.minValue));
     std::memcpy(hot.maxValue, config.maxValue, sizeof(hot.maxValue));
@@ -462,6 +501,10 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
     std::memcpy(hot.nonZeroPossibleFromPos, config.nonZeroPossibleFromPos, sizeof(hot.nonZeroPossibleFromPos));
     std::memcpy(hot.values, config.values, sizeof(hot.values));
     std::memcpy(hot.invalidNextMask, config.invalidNextMask, sizeof(hot.invalidNextMask));
+    std::memcpy(hot.segmentStart, config.segmentStart, sizeof(hot.segmentStart));
+    std::memcpy(hot.segmentLen, config.segmentLen, sizeof(hot.segmentLen));
+    std::memcpy(hot.segmentRadix, config.segmentRadix, sizeof(hot.segmentRadix));
+    std::memcpy(hot.segmentRadixShift, config.segmentRadixShift, sizeof(hot.segmentRadixShift));
 
     CudaSafeCall(cudaMemcpyToSymbol(c_maskedHotCfg, &hot, sizeof(MaskedGPUHotConfig)));
     CudaSafeCall(cudaStreamSynchronize(stream_));
@@ -476,11 +519,17 @@ MaskedGPUEngine::~MaskedGPUEngine() {
     if (stream_ != NULL) {
         CudaSafeCall(cudaStreamDestroy(stream_));
     }
-    if (pointY_ != NULL) {
-        CudaSafeCall(cudaFree(pointY_));
+    if (segmentPointY_ != NULL) {
+        CudaSafeCall(cudaFree(segmentPointY_));
     }
-    if (pointX_ != NULL) {
-        CudaSafeCall(cudaFree(pointX_));
+    if (segmentPointX_ != NULL) {
+        CudaSafeCall(cudaFree(segmentPointX_));
+    }
+    if (segmentValues_ != NULL) {
+        CudaSafeCall(cudaFree(segmentValues_));
+    }
+    if (segmentPointSet_ != NULL) {
+        CudaSafeCall(cudaFree(segmentPointSet_));
     }
     if (outputHitsPinned_ != NULL) {
         CudaSafeCall(cudaFreeHost(outputHitsPinned_));
@@ -522,16 +571,16 @@ bool MaskedGPUEngine::SearchBatch(const MaskedGPUTask& task, std::vector<MaskedG
     CudaSafeCall(cudaMemsetAsync(outputCount_, 0, sizeof(uint32_t), stream_));
 
     if (coinType_ == COIN_ETH) {
-        masked_search_kernel<COIN_ETH, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, pointX_, pointY_);
+        masked_search_kernel<COIN_ETH, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else if (compMode_ == SEARCH_COMPRESSED) {
-        masked_search_kernel<COIN_BTC, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, pointX_, pointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else if (compMode_ == SEARCH_UNCOMPRESSED) {
-        masked_search_kernel<COIN_BTC, SEARCH_UNCOMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, pointX_, pointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_UNCOMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else {
-        masked_search_kernel<COIN_BTC, SEARCH_BOTH><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, pointX_, pointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_BOTH><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
 
     cudaError_t err = cudaGetLastError();

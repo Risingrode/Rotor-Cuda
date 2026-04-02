@@ -14,6 +14,9 @@
 #define MASKED_GPU_MAX_SUFFIX 23
 #define MASKED_GPU_MAX_CHOICES 16
 #define MASKED_GPU_RULE_DIM 17
+#define MASKED_GPU_MAX_SEGMENTS MASKED_GPU_MAX_SUFFIX
+#define MASKED_GPU_SEGMENT_COMBO_CAP 64
+#define MASKED_GPU_MAX_SEGMENT_LEN MASKED_GPU_MAX_SUFFIX
 
 enum MaskedGPUPosFlags {
     MASKED_GPU_POS_HAS_ZERO      = 1 << 0,
@@ -31,7 +34,12 @@ struct MaskedGPUCharsetConfig {
     uint8_t forbidTripleSame;
     uint8_t forbidTripleRun;
     uint8_t reserved0[2];
+    uint8_t gpuStartPos;
+    uint8_t segmentCount;
+    uint8_t segmentComboCap;
+    uint8_t reserved1;
     uint8_t radices[MASKED_GPU_MAX_SUFFIX];
+    uint8_t radixShift[MASKED_GPU_MAX_SUFFIX];
     uint8_t bound[MASKED_GPU_MAX_SUFFIX];
     uint8_t minValue[MASKED_GPU_MAX_SUFFIX];
     uint8_t maxValue[MASKED_GPU_MAX_SUFFIX];
@@ -39,8 +47,14 @@ struct MaskedGPUCharsetConfig {
     uint8_t nonZeroPossibleFromPos[MASKED_GPU_MAX_SUFFIX + 1];
     uint8_t values[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES];
     uint16_t invalidNextMask[MASKED_GPU_RULE_DIM][MASKED_GPU_RULE_DIM];
-    uint64_t pointX[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES][4];
-    uint64_t pointY[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES][4];
+    uint8_t segmentStart[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentLen[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentRadix[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentRadixShift[MASKED_GPU_MAX_SEGMENTS];
+    uint8_t segmentPointSet[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP];
+    uint8_t segmentValues[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][MASKED_GPU_MAX_SEGMENT_LEN];
+    uint64_t segmentPointX[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][4];
+    uint64_t segmentPointY[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][4];
 };
 
 struct MaskedGPUTask {
@@ -93,8 +107,10 @@ private:
     uint32_t* outputCountPinned_;
     MaskedGPUHit* outputHits_;
     MaskedGPUHit* outputHitsPinned_;
-    uint64_t* pointX_;
-    uint64_t* pointY_;
+    uint8_t* segmentPointSet_;
+    uint8_t* segmentValues_;
+    uint64_t* segmentPointX_;
+    uint64_t* segmentPointY_;
     uint32_t compMode_;
     uint32_t coinType_;
 
