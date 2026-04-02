@@ -372,7 +372,7 @@ __device__ __noinline__ void CheckPubSEARCH_MODE_SX(uint32_t mode, uint64_t* px,
 
 #define CHECK_HASH_SEARCH_MODE_MA(incr) CheckHashSEARCH_MODE_MA(mode, px, py, baseOffset + (incr), bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
 
-__device__ __forceinline__ void LoadDeltaX(uint64_t* dxValue, const uint64_t* sx, uint32_t index)
+__device__ __forceinline__ void LoadDeltaX(uint64_t* dxValue, uint64_t* sx, uint32_t index)
 {
 	if (index <= HSIZE) {
 		ModSub256(dxValue, Gx + 4 * index, sx);
@@ -382,7 +382,7 @@ __device__ __forceinline__ void LoadDeltaX(uint64_t* dxValue, const uint64_t* sx
 	}
 }
 
-__device__ __noinline__ void FillAndModInvGroupedDeltaX(uint64_t dx[GRP_SIZE / 2 + 1][4], const uint64_t* sx)
+__device__ __noinline__ void FillAndModInvGroupedDeltaX(uint64_t dx[GRP_SIZE / 2 + 1][4], uint64_t* sx)
 {
 	uint64_t value[4];
 	uint64_t newValue[4];
