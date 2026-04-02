@@ -74,7 +74,7 @@ __device__ __forceinline__ void ModDouble256(uint64_t* result, const uint64_t* v
     UADDO(result[0], value[0], value[0]);
     UADDC(result[1], value[1], value[1]);
     UADDC(result[2], value[2], value[2]);
-    UADD(result[3], value[3], value[3]);
+    UADDC(result[3], value[3], value[3]);
     UADD(carry, 0ULL, 0ULL);
     if (carry || IsGeP(result)) {
         SubP256(result);
