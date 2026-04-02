@@ -112,12 +112,13 @@ __device__ __noinline__ void CheckPointSEARCH_MODE_MA(uint32_t* _h, int32_t incr
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_A32 + 1] = tid;
-			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)(incr << 16) | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_A32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_A32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_A32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_A32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_A32 + 7] = _h[4];
+			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_A32 + 3] = (uint32_t)mode;
+			out[pos * ITEM_SIZE_A32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_A32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_A32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_A32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_A32 + 8] = _h[4];
 		}
 	}
 }
@@ -133,15 +134,16 @@ __device__ __noinline__ void CheckPointSEARCH_MODE_MX(uint32_t* _h, int32_t incr
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_X32 + 1] = tid;
-			out[pos * ITEM_SIZE_X32 + 2] = (uint32_t)(incr << 16) | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_X32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_X32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_X32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_X32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_X32 + 7] = _h[4];
-			out[pos * ITEM_SIZE_X32 + 8] = _h[5];
-			out[pos * ITEM_SIZE_X32 + 9] = _h[6];
-			out[pos * ITEM_SIZE_X32 + 10] = _h[7];
+			out[pos * ITEM_SIZE_X32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_X32 + 3] = (uint32_t)mode;
+			out[pos * ITEM_SIZE_X32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_X32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_X32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_X32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_X32 + 8] = _h[4];
+			out[pos * ITEM_SIZE_X32 + 9] = _h[5];
+			out[pos * ITEM_SIZE_X32 + 10] = _h[6];
+			out[pos * ITEM_SIZE_X32 + 11] = _h[7];
 		}
 	}
 }
@@ -197,12 +199,13 @@ __device__ __noinline__ void CheckPointSEARCH_MODE_SA(uint32_t* _h, int32_t incr
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_A32 + 1] = tid;
-			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)(incr << 16) | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_A32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_A32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_A32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_A32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_A32 + 7] = _h[4];
+			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_A32 + 3] = (uint32_t)mode;
+			out[pos * ITEM_SIZE_A32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_A32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_A32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_A32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_A32 + 8] = _h[4];
 		}
 	}
 }
@@ -218,15 +221,16 @@ __device__ __noinline__ void CheckPointSEARCH_MODE_SX(uint32_t* _h, int32_t incr
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_X32 + 1] = tid;
-			out[pos * ITEM_SIZE_X32 + 2] = (uint32_t)(incr << 16) | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_X32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_X32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_X32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_X32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_X32 + 7] = _h[4];
-			out[pos * ITEM_SIZE_X32 + 8] = _h[5];
-			out[pos * ITEM_SIZE_X32 + 9] = _h[6];
-			out[pos * ITEM_SIZE_X32 + 10] = _h[7];
+			out[pos * ITEM_SIZE_X32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_X32 + 3] = (uint32_t)mode;
+			out[pos * ITEM_SIZE_X32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_X32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_X32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_X32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_X32 + 8] = _h[4];
+			out[pos * ITEM_SIZE_X32 + 9] = _h[5];
+			out[pos * ITEM_SIZE_X32 + 10] = _h[6];
+			out[pos * ITEM_SIZE_X32 + 11] = _h[7];
 		}
 	}
 }
@@ -367,10 +371,10 @@ __device__ __noinline__ void CheckPubSEARCH_MODE_SX(uint32_t mode, uint64_t* px,
 
 // -----------------------------------------------------------------------------------------
 
-#define CHECK_HASH_SEARCH_MODE_MA(incr) CheckHashSEARCH_MODE_MA(mode, px, py, incr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
+#define CHECK_HASH_SEARCH_MODE_MA(incr) CheckHashSEARCH_MODE_MA(mode, px, py, baseOffset + (incr), bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_MODE_MA(uint32_t mode, uint64_t* startx, uint64_t* starty,
-	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint32_t maxFound, uint32_t* out)
+	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -509,10 +513,10 @@ __device__ __noinline__ void CheckHashSEARCH_MODE_SA(uint32_t mode, uint64_t* px
 
 // -----------------------------------------------------------------------------------------
 
-#define CHECK_HASH_SEARCH_MODE_SA(incr) CheckHashSEARCH_MODE_SA(mode, px, py, incr, hash160, maxFound, out)
+#define CHECK_HASH_SEARCH_MODE_SA(incr) CheckHashSEARCH_MODE_SA(mode, px, py, baseOffset + (incr), hash160, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_MODE_SA(uint32_t mode, uint64_t* startx, uint64_t* starty,
-	uint32_t* hash160, uint32_t maxFound, uint32_t* out)
+	uint32_t* hash160, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -633,10 +637,10 @@ __device__ void ComputeKeysSEARCH_MODE_SA(uint32_t mode, uint64_t* startx, uint6
 
 // -----------------------------------------------------------------------------------------
 
-#define CHECK_PUB_SEARCH_MODE_MX(incr) CheckPubSEARCH_MODE_MX(mode, px, py, incr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
+#define CHECK_PUB_SEARCH_MODE_MX(incr) CheckPubSEARCH_MODE_MX(mode, px, py, baseOffset + (incr), bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_MODE_MX(uint32_t mode, uint64_t* startx, uint64_t* starty,
-	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint32_t maxFound, uint32_t* out)
+	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -755,10 +759,10 @@ __device__ void ComputeKeysSEARCH_MODE_MX(uint32_t mode, uint64_t* startx, uint6
 
 // -----------------------------------------------------------------------------------------
 
-#define CHECK_PUB_SEARCH_MODE_SX(incr) CheckPubSEARCH_MODE_SX(mode, px, py, incr, xpoint, maxFound, out)
+#define CHECK_PUB_SEARCH_MODE_SX(incr) CheckPubSEARCH_MODE_SX(mode, px, py, baseOffset + (incr), xpoint, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_MODE_SX(uint32_t mode, uint64_t* startx, uint64_t* starty,
-	uint32_t* xpoint, uint32_t maxFound, uint32_t* out)
+	uint32_t* xpoint, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -890,12 +894,13 @@ __device__ __noinline__ void CheckPointSEARCH_ETH_MODE_MA(uint32_t* _h, int32_t 
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_A32 + 1] = tid;
-			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)(incr << 16);// | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_A32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_A32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_A32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_A32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_A32 + 7] = _h[4];
+			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_A32 + 3] = 0U;
+			out[pos * ITEM_SIZE_A32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_A32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_A32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_A32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_A32 + 8] = _h[4];
 		}
 	}
 }
@@ -919,10 +924,10 @@ __device__ __noinline__ void CheckHashSEARCH_ETH_MODE_MA(uint64_t* px, uint64_t*
 
 }
 
-#define CHECK_HASH_SEARCH_ETH_MODE_MA(incr) CheckHashSEARCH_ETH_MODE_MA(px, py, incr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
+#define CHECK_HASH_SEARCH_ETH_MODE_MA(incr) CheckHashSEARCH_ETH_MODE_MA(px, py, baseOffset + (incr), bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_ETH_MODE_MA(uint64_t* startx, uint64_t* starty,
-	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint32_t maxFound, uint32_t* out)
+	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -1051,12 +1056,13 @@ __device__ __noinline__ void CheckPointSEARCH_MODE_SA(uint32_t* _h, int32_t incr
 		uint32_t pos = atomicAdd(out, 1);
 		if (pos < maxFound) {
 			out[pos * ITEM_SIZE_A32 + 1] = tid;
-			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)(incr << 16); // | (uint32_t)(mode << 15);// | (uint32_t)(endo);
-			out[pos * ITEM_SIZE_A32 + 3] = _h[0];
-			out[pos * ITEM_SIZE_A32 + 4] = _h[1];
-			out[pos * ITEM_SIZE_A32 + 5] = _h[2];
-			out[pos * ITEM_SIZE_A32 + 6] = _h[3];
-			out[pos * ITEM_SIZE_A32 + 7] = _h[4];
+			out[pos * ITEM_SIZE_A32 + 2] = (uint32_t)incr;
+			out[pos * ITEM_SIZE_A32 + 3] = 0U;
+			out[pos * ITEM_SIZE_A32 + 4] = _h[0];
+			out[pos * ITEM_SIZE_A32 + 5] = _h[1];
+			out[pos * ITEM_SIZE_A32 + 6] = _h[2];
+			out[pos * ITEM_SIZE_A32 + 7] = _h[3];
+			out[pos * ITEM_SIZE_A32 + 8] = _h[4];
 		}
 	}
 }
@@ -1077,10 +1083,10 @@ __device__ __noinline__ void CheckHashSEARCH_ETH_MODE_SA(uint64_t* px, uint64_t*
 	CheckHashCompSEARCH_ETH_MODE_SA(px, py, incr, hash, maxFound, out);
 
 }
-#define CHECK_HASH_SEARCH_ETH_MODE_SA(incr) CheckHashSEARCH_ETH_MODE_SA(px, py, incr, hash, maxFound, out)
+#define CHECK_HASH_SEARCH_ETH_MODE_SA(incr) CheckHashSEARCH_ETH_MODE_SA(px, py, baseOffset + (incr), hash, maxFound, out)
 
 __device__ void ComputeKeysSEARCH_ETH_MODE_SA(uint64_t* startx, uint64_t* starty,
-	uint32_t* hash, uint32_t maxFound, uint32_t* out)
+	uint32_t* hash, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
 
 	uint64_t dx[GRP_SIZE / 2 + 1][4];
@@ -1196,5 +1202,3 @@ __device__ void ComputeKeysSEARCH_ETH_MODE_SA(uint64_t* startx, uint64_t* starty
 	Store256A(starty, py);
 
 }
-
-

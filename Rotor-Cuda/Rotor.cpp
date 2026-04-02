@@ -1275,6 +1275,7 @@ void Rotor::FindKeyGPU(TH_PARAM * ph)
 
 
 	int nbThread = g->GetNbThread();
+	uint64_t batchKeyCount = g->GetBatchKeyCount();
 	Point* p = new Point[nbThread];
 	Int* keys = new Int[nbThread];
 	std::vector<ITEM> found;
@@ -1366,9 +1367,9 @@ void Rotor::FindKeyGPU(TH_PARAM * ph)
 
 		if (ok) {
 			for (int i = 0; i < nbThread; i++) {
-				keys[i].Add((uint64_t)STEP_SIZE);
+				keys[i].Add(batchKeyCount);
 			}
-			counters[thId] += (uint64_t)(STEP_SIZE)*nbThread; // Point
+			counters[thId] += batchKeyCount * (uint64_t)nbThread; // Point
 		}
 
 	}

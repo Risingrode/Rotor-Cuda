@@ -21,6 +21,10 @@
 #include <vector>
 #include "../SECP256k1.h"
 
+#ifdef WITHGPU
+#include <cuda_runtime.h>
+#endif
+
 #define SEARCH_COMPRESSED 0
 #define SEARCH_UNCOMPRESSED 1
 #define SEARCH_BOTH 2
@@ -38,15 +42,17 @@
 #define STEP_SIZE (1024*2)
 
 // Number of thread per block
-#define ITEM_SIZE_A 28
+#define ITEM_META_WORDS 3
+
+#define ITEM_SIZE_A ((ITEM_META_WORDS + 5) * 4)
 #define ITEM_SIZE_A32 (ITEM_SIZE_A/4)
 
-#define ITEM_SIZE_X 40
+#define ITEM_SIZE_X ((ITEM_META_WORDS + 8) * 4)
 #define ITEM_SIZE_X32 (ITEM_SIZE_X/4)
 
 typedef struct {
 	uint32_t thId;
-	int16_t  incr;
+	int32_t  incr;
 	uint8_t* hash;
 	bool mode;
 } ITEM;
@@ -74,6 +80,7 @@ public:
 
 	int GetNbThread();
 	int GetGroupSize();
+	uint64_t GetBatchKeyCount() const;
 
 	//bool Check(Secp256K1 *secp);
 	std::string deviceName;
@@ -121,6 +128,9 @@ private:
 
 	bool rKey;
 	uint32_t maxFound;
+	uint32_t deviceMaxFound;
+	uint32_t batchSteps;
+	uint64_t batchKeyCount;
 	uint32_t outputSize;
 
 	int64_t BLOOM_SIZE;
@@ -129,6 +139,11 @@ private:
 
 	uint8_t* DATA;
 	uint64_t TOTAL_COUNT;
+
+#ifdef WITHGPU
+	cudaStream_t kernelStream;
+	cudaEvent_t kernelCompletedEvent;
+#endif
 
 };
 

@@ -856,6 +856,20 @@ private:
                 }
                 choices_[pos].push_back(choice);
             }
+
+            if (config_.useGpu) {
+                std::stable_sort(choices_[pos].begin(), choices_[pos].end(), [](const PositionChoice& a, const PositionChoice& b) {
+                    const int aZeroClass = (a.value == 0) ? 0 : 1;
+                    const int bZeroClass = (b.value == 0) ? 0 : 1;
+                    if (aZeroClass != bZeroClass) return aZeroClass < bZeroClass;
+
+                    const int aTypeClass = a.isDigit ? 0 : 1;
+                    const int bTypeClass = b.isDigit ? 0 : 1;
+                    if (aTypeClass != bTypeClass) return aTypeClass < bTypeClass;
+
+                    return a.value < b.value;
+                });
+            }
         }
 
         for (int pos = static_cast<int>(suffixLen_) - 1; pos >= 0; pos--) {
@@ -911,6 +925,10 @@ private:
             }
             gpuResidualCount_ *= radix;
             startPos--;
+        }
+
+        while (startPos < suffixLen_ && choices_[startPos].size() <= 1) {
+            startPos++;
         }
         taskDepth_ = startPos;
 
@@ -1246,15 +1264,66 @@ private:
         for (size_t pos = 0; pos < suffixLen_; pos++) {
             cfg.radices[pos] = static_cast<uint8_t>(choices_[pos].size());
             cfg.bound[pos] = static_cast<uint8_t>(HexValue(maxValidHex_[prefixLen_ + pos]));
+            cfg.minValue[pos] = 0xFFU;
+            cfg.maxValue[pos] = 0U;
+            uint8_t posFlags = 0U;
             for (size_t j = 0; j < choices_[pos].size(); j++) {
                 cfg.values[pos][j] = choices_[pos][j].value;
-                if (choices_[pos][j].value != 0) {
-                    cfg.pointPresent[pos][j] = 1;
+                cfg.minValue[pos] = std::min<uint8_t>(cfg.minValue[pos], choices_[pos][j].value);
+                cfg.maxValue[pos] = std::max<uint8_t>(cfg.maxValue[pos], choices_[pos][j].value);
+                if (choices_[pos][j].value == 0) {
+                    posFlags |= MASKED_GPU_POS_HAS_ZERO;
+                }
+                else {
+                    posFlags |= MASKED_GPU_POS_HAS_NONZERO;
                     for (int k = 0; k < 4; k++) {
                         cfg.pointX[pos][j][k] = choices_[pos][j].point.x.bits64[k];
                         cfg.pointY[pos][j][k] = choices_[pos][j].point.y.bits64[k];
                     }
                 }
+            }
+
+            if (cfg.maxValue[pos] < cfg.bound[pos]) {
+                posFlags |= MASKED_GPU_POS_ALL_LT_BOUND;
+            }
+            else if (cfg.minValue[pos] > cfg.bound[pos]) {
+                posFlags |= MASKED_GPU_POS_ALL_GT_BOUND;
+            }
+            else if (cfg.minValue[pos] == cfg.bound[pos] && cfg.maxValue[pos] == cfg.bound[pos]) {
+                posFlags |= MASKED_GPU_POS_ALL_EQ_BOUND;
+            }
+            cfg.posFlags[pos] = posFlags;
+        }
+
+        cfg.nonZeroPossibleFromPos[suffixLen_] = 0U;
+        for (size_t pos = suffixLen_; pos-- > 0;) {
+            uint8_t possible = cfg.nonZeroPossibleFromPos[pos + 1];
+            if ((cfg.posFlags[pos] & MASKED_GPU_POS_HAS_NONZERO) != 0U) {
+                possible = 1U;
+            }
+            cfg.nonZeroPossibleFromPos[pos] = possible;
+        }
+
+        for (int last2 = -1; last2 < 16; last2++) {
+            for (int last1 = -1; last1 < 16; last1++) {
+                uint16_t mask = 0U;
+                for (int value = 0; value < 16; value++) {
+                    if (config_.forbidTripleSame && last2 == value && last1 == value) {
+                        mask |= static_cast<uint16_t>(1U << value);
+                        continue;
+                    }
+                    if (config_.forbidTripleRun && last2 >= 0 && last1 >= 0) {
+                        if ((last2 + 1) == last1 && (last1 + 1) == value) {
+                            mask |= static_cast<uint16_t>(1U << value);
+                            continue;
+                        }
+                        if ((last2 - 1) == last1 && (last1 - 1) == value) {
+                            mask |= static_cast<uint16_t>(1U << value);
+                            continue;
+                        }
+                    }
+                }
+                cfg.invalidNextMask[last2 + 1][last1 + 1] = mask;
             }
         }
         return cfg;
