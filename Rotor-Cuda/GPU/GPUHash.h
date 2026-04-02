@@ -52,7 +52,7 @@ __device__ __constant__ uint32_t I[] = {
 //#define ASSEMBLY_SIGMA
 #ifdef ASSEMBLY_SIGMA
 
-__device__ __forceinline__ uint32_t S0(uint32_t x)
+static __device__ __forceinline__ uint32_t S0(uint32_t x)
 {
 
 	uint32_t y;
@@ -75,7 +75,7 @@ __device__ __forceinline__ uint32_t S0(uint32_t x)
 
 }
 
-__device__ __forceinline__ uint32_t S1(uint32_t x)
+static __device__ __forceinline__ uint32_t S1(uint32_t x)
 {
 
 	uint32_t y;
@@ -98,7 +98,7 @@ __device__ __forceinline__ uint32_t S1(uint32_t x)
 
 }
 
-__device__ __forceinline__ uint32_t s0(uint32_t x)
+static __device__ __forceinline__ uint32_t s0(uint32_t x)
 {
 
 	uint32_t y;
@@ -120,7 +120,7 @@ __device__ __forceinline__ uint32_t s0(uint32_t x)
 
 }
 
-__device__ __forceinline__ uint32_t s1(uint32_t x)
+static __device__ __forceinline__ uint32_t s1(uint32_t x)
 {
 
 	uint32_t y;
@@ -210,7 +210,7 @@ S2Round(b, c, d, e, f, g, h, a, K[k + 15], w[15]);\
 #define bswap32(v) __byte_perm(v, 0, 0x0123)
 
 // Initialise state
-__device__ void SHA256Initialize(uint32_t s[8])
+static __device__ void SHA256Initialize(uint32_t s[8])
 {
 #pragma unroll 8
 	for (int i = 0; i < 8; i++)
@@ -220,7 +220,7 @@ __device__ void SHA256Initialize(uint32_t s[8])
 #define DEF(x,y) uint32_t x = s[y]
 
 // Perform SHA-256 transformations, process 64-byte chunks
-__device__ void SHA256Transform(uint32_t s[8], uint32_t* w)
+static __device__ void SHA256Transform(uint32_t s[8], uint32_t* w)
 {
 
 	uint32_t t1;
@@ -260,7 +260,7 @@ __device__ void SHA256Transform(uint32_t s[8], uint32_t* w)
 // ---------------------------------------------------------------------------------
 __device__ __constant__ uint64_t ripemd160_sizedesc_32 = 32 << 3;
 
-__device__ void RIPEMD160Initialize(uint32_t s[5])
+static __device__ void RIPEMD160Initialize(uint32_t s[5])
 {
 
 	s[0] = 0x67452301ul;
@@ -295,7 +295,7 @@ __device__ void RIPEMD160Initialize(uint32_t s[5])
 #define R52(a,b,c,d,e,x,r) RPRound(a, b, c, d, e, f1(b, c, d), x, 0, r)
 
 /** Perform a RIPEMD-160 transformation, processing a 64-byte chunk. */
-__device__ void RIPEMD160Transform(uint32_t s[5], uint32_t* w)
+static __device__ void RIPEMD160Transform(uint32_t s[5], uint32_t* w)
 {
 
 	uint32_t u;
@@ -479,7 +479,7 @@ __device__ void RIPEMD160Transform(uint32_t s[5], uint32_t* w)
 // Key encoding
 // ---------------------------------------------------------------------------------
 
-__device__ __noinline__ void _GetHash160Comp(uint64_t* x, uint8_t isOdd, uint8_t* hash)
+static __device__ __noinline__ void _GetHash160Comp(uint64_t* x, uint8_t isOdd, uint8_t* hash)
 {
 
 	uint32_t* x32 = (uint32_t*)(x);
@@ -521,7 +521,7 @@ __device__ __noinline__ void _GetHash160Comp(uint64_t* x, uint8_t isOdd, uint8_t
 
 }
 
-__device__ __noinline__ void _GetHash160CompSym(uint64_t* x, uint8_t* h1, uint8_t* h2)
+static __device__ __noinline__ void _GetHash160CompSym(uint64_t* x, uint8_t* h1, uint8_t* h2)
 {
 
 	uint32_t* x32 = (uint32_t*)(x);
@@ -587,7 +587,7 @@ __device__ __noinline__ void _GetHash160CompSym(uint64_t* x, uint8_t* h1, uint8_
 
 }
 
-__device__ __noinline__ void _GetHash160(uint64_t* x, uint64_t* y, uint8_t* hash)
+static __device__ __noinline__ void _GetHash160(uint64_t* x, uint64_t* y, uint8_t* hash)
 {
 
 	uint32_t* x32 = (uint32_t*)(x);
@@ -647,7 +647,7 @@ __device__ __noinline__ void _GetHash160(uint64_t* x, uint64_t* y, uint8_t* hash
 
 }
 
-__device__ __noinline__ void _GetHash160P2SHComp(uint64_t* x, uint8_t isOdd, uint8_t* hash)
+static __device__ __noinline__ void _GetHash160P2SHComp(uint64_t* x, uint8_t isOdd, uint8_t* hash)
 {
 
 	uint32_t h[5];
@@ -690,7 +690,7 @@ __device__ __noinline__ void _GetHash160P2SHComp(uint64_t* x, uint8_t isOdd, uin
 
 }
 
-__device__ __noinline__ void _GetHash160P2SHUncomp(uint64_t* x, uint64_t* y, uint8_t* hash)
+static __device__ __noinline__ void _GetHash160P2SHUncomp(uint64_t* x, uint64_t* y, uint8_t* hash)
 {
 
 	uint32_t h[5];
@@ -760,7 +760,7 @@ __device__ __constant__ uint64_t _KECCAKF_RNDC[24] = {
 
 #define ROTL64(a,b) (((a) << (b)) | ((a) >> (64 - b)))
 
-__device__ __noinline__ void _GetHashKeccak160(uint64_t* x, uint64_t* y, uint32_t* hash)
+static __device__ __noinline__ void _GetHashKeccak160(uint64_t* x, uint64_t* y, uint32_t* hash)
 {
 	_KECCAK_STATE e;
 	uint32_t* X = (uint32_t*)x;

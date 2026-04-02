@@ -173,7 +173,7 @@ USUB(r[4],0ULL,r[4]); }
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void ShiftR62(uint64_t *r)
+static __device__ void ShiftR62(uint64_t *r)
 {
 
     r[0] = (r[1] << 2) | (r[0] >> 62);
@@ -185,7 +185,7 @@ __device__ void ShiftR62(uint64_t *r)
 
 }
 
-__device__ void ShiftR62(uint64_t dest[5], uint64_t r[5], uint64_t carry)
+static __device__ void ShiftR62(uint64_t dest[5], uint64_t r[5], uint64_t carry)
 {
 
     dest[0] = (r[1] << 2) | (r[0] >> 62);
@@ -198,7 +198,7 @@ __device__ void ShiftR62(uint64_t dest[5], uint64_t r[5], uint64_t carry)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void IMult(uint64_t *r, uint64_t *a, int64_t b)
+static __device__ void IMult(uint64_t *r, uint64_t *a, int64_t b)
 {
 
     uint64_t t[NBBLOCK];
@@ -227,7 +227,7 @@ __device__ void IMult(uint64_t *r, uint64_t *a, int64_t b)
 
 }
 
-__device__ uint64_t IMultC(uint64_t *r, uint64_t *a, int64_t b)
+static __device__ uint64_t IMultC(uint64_t *r, uint64_t *a, int64_t b)
 {
 
     uint64_t t[NBBLOCK];
@@ -262,7 +262,7 @@ __device__ uint64_t IMultC(uint64_t *r, uint64_t *a, int64_t b)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void MulP(uint64_t *r, uint64_t a)
+static __device__ void MulP(uint64_t *r, uint64_t a)
 {
 
     uint64_t ah;
@@ -281,7 +281,7 @@ __device__ void MulP(uint64_t *r, uint64_t a)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void ModNeg256(uint64_t *r, uint64_t *a)
+static __device__ void ModNeg256(uint64_t *r, uint64_t *a)
 {
 
     uint64_t t[4];
@@ -298,7 +298,7 @@ __device__ void ModNeg256(uint64_t *r, uint64_t *a)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void ModNeg256(uint64_t *r)
+static __device__ void ModNeg256(uint64_t *r)
 {
 
     uint64_t t[4];
@@ -315,7 +315,7 @@ __device__ void ModNeg256(uint64_t *r)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void ModSub256(uint64_t *r, uint64_t *a, uint64_t *b)
+static __device__ void ModSub256(uint64_t *r, uint64_t *a, uint64_t *b)
 {
 
     uint64_t t;
@@ -338,7 +338,7 @@ __device__ void ModSub256(uint64_t *r, uint64_t *a, uint64_t *b)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ void ModSub256(uint64_t *r, uint64_t *b)
+static __device__ void ModSub256(uint64_t *r, uint64_t *b)
 {
 
     uint64_t t;
@@ -361,7 +361,7 @@ __device__ void ModSub256(uint64_t *r, uint64_t *b)
 
 // ---------------------------------------------------------------------------------------
 
-__device__ __forceinline__ uint32_t ctz(uint64_t x)
+static __device__ __forceinline__ uint32_t ctz(uint64_t x)
 {
     uint32_t n;
     asm("{\n\t"
@@ -377,7 +377,7 @@ __device__ __forceinline__ uint32_t ctz(uint64_t x)
 #define SWAP(tmp,x,y) tmp = x; x = y; y = tmp;
 #define MSK62 0x3FFFFFFFFFFFFFFF
 
-__device__ void _DivStep62(uint64_t u[5], uint64_t v[5],
+static __device__ void _DivStep62(uint64_t u[5], uint64_t v[5],
                            int32_t *pos,
                            int64_t *uu, int64_t *uv,
                            int64_t *vu, int64_t *vv)
@@ -454,7 +454,7 @@ __device__ void _DivStep62(uint64_t u[5], uint64_t v[5],
 
 }
 
-__device__ void MatrixVecMulHalf(uint64_t dest[5], uint64_t u[5], uint64_t v[5], int64_t _11, int64_t _12, uint64_t *carry)
+static __device__ void MatrixVecMulHalf(uint64_t dest[5], uint64_t u[5], uint64_t v[5], int64_t _11, int64_t _12, uint64_t *carry)
 {
 
     uint64_t t1[NBBLOCK];
@@ -473,7 +473,7 @@ __device__ void MatrixVecMulHalf(uint64_t dest[5], uint64_t u[5], uint64_t v[5],
 
 }
 
-__device__ void MatrixVecMul(uint64_t u[5], uint64_t v[5], int64_t _11, int64_t _12, int64_t _21, int64_t _22)
+static __device__ void MatrixVecMul(uint64_t u[5], uint64_t v[5], int64_t _11, int64_t _12, int64_t _21, int64_t _22)
 {
 
     uint64_t t1[NBBLOCK];
@@ -500,7 +500,7 @@ __device__ void MatrixVecMul(uint64_t u[5], uint64_t v[5], int64_t _11, int64_t 
 
 }
 
-__device__ uint64_t AddCh(uint64_t r[5], uint64_t a[5], uint64_t carry)
+static __device__ uint64_t AddCh(uint64_t r[5], uint64_t a[5], uint64_t carry)
 {
 
     uint64_t carryOut;
@@ -516,7 +516,7 @@ __device__ uint64_t AddCh(uint64_t r[5], uint64_t a[5], uint64_t carry)
 
 }
 
-__device__ __noinline__ void _ModInv(uint64_t *R)
+static __device__ __noinline__ void _ModInv(uint64_t *R)
 {
 
     // Compute modular inverse of R mop P (using 320bits signed integer)
@@ -627,7 +627,7 @@ __device__ __noinline__ void _ModInv(uint64_t *R)
 // a and b must be lower than n
 // ---------------------------------------------------------------------------------------
 
-__device__ void _ModMult(uint64_t *r, uint64_t *a, uint64_t *b)
+static __device__ void _ModMult(uint64_t *r, uint64_t *a, uint64_t *b)
 {
 
     uint64_t r512[8];
@@ -678,7 +678,7 @@ __device__ void _ModMult(uint64_t *r, uint64_t *a, uint64_t *b)
 }
 
 
-__device__ void _ModMult(uint64_t *r, uint64_t *a)
+static __device__ void _ModMult(uint64_t *r, uint64_t *a)
 {
 
     uint64_t r512[8];
@@ -727,7 +727,7 @@ __device__ void _ModMult(uint64_t *r, uint64_t *a)
 
 }
 
-__device__ void _ModSqr(uint64_t *rp, const uint64_t *up)
+static __device__ void _ModSqr(uint64_t *rp, const uint64_t *up)
 {
 
     uint64_t r512[8];
@@ -904,7 +904,7 @@ __device__ void _ModSqr(uint64_t *rp, const uint64_t *up)
 // Compute all ModInv of the group
 // ---------------------------------------------------------------------------------------
 
-__device__ __noinline__ void _ModInvGrouped(uint64_t r[GRP_SIZE / 2 + 1][4])
+static __device__ __noinline__ void _ModInvGrouped(uint64_t r[GRP_SIZE / 2 + 1][4])
 {
 
     uint64_t subp[GRP_SIZE / 2 + 1][4];
