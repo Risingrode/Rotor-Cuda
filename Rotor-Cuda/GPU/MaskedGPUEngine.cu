@@ -91,7 +91,7 @@ __device__ __forceinline__ void SetAffine(DevicePoint* point, const uint64_t* x,
     point->set = 1;
 }
 
-__device__ void ReducePoint(DevicePoint* point) {
+__device__ __noinline__ void ReducePoint(DevicePoint* point) {
     if (!point->set || IsOne256(point->z)) {
         return;
     }
@@ -118,7 +118,7 @@ __device__ void ReducePoint(DevicePoint* point) {
     point->z[3] = 0ULL;
 }
 
-__device__ void AddAffine(DevicePoint* point, const uint64_t* x2, const uint64_t* y2) {
+__device__ __noinline__ void AddAffine(DevicePoint* point, const uint64_t* x2, const uint64_t* y2) {
     if (!point->set) {
         SetAffine(point, x2, y2);
         return;
@@ -211,7 +211,7 @@ __device__ __forceinline__ void AddChoicePoint(DevicePoint* point,
 }
 
 template<int CoinType, int CompMode>
-__device__ __forceinline__ bool MatchCandidate(DevicePoint* point, uint32_t* matchMode) {
+__device__ __noinline__ bool MatchCandidate(DevicePoint* point, uint32_t* matchMode) {
     uint32_t h[5];
 
     if (CoinType == COIN_ETH) {

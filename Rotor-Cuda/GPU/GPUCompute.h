@@ -372,6 +372,42 @@ __device__ __noinline__ void CheckPubSEARCH_MODE_SX(uint32_t mode, uint64_t* px,
 
 #define CHECK_HASH_SEARCH_MODE_MA(incr) CheckHashSEARCH_MODE_MA(mode, px, py, baseOffset + (incr), bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, out)
 
+__device__ __forceinline__ void LoadDeltaX(uint64_t* dxValue, const uint64_t* sx, uint32_t index)
+{
+	if (index <= HSIZE) {
+		ModSub256(dxValue, Gx + 4 * index, sx);
+	}
+	else {
+		ModSub256(dxValue, _2Gnx, sx);
+	}
+}
+
+__device__ __noinline__ void FillAndModInvGroupedDeltaX(uint64_t dx[GRP_SIZE / 2 + 1][4], const uint64_t* sx)
+{
+	uint64_t value[4];
+	uint64_t newValue[4];
+	uint64_t inverse[5];
+
+	LoadDeltaX(dx[0], sx, 0);
+	for (uint32_t i = 1; i < (GRP_SIZE / 2 + 1); i++) {
+		LoadDeltaX(value, sx, i);
+		_ModMult(dx[i], dx[i - 1], value);
+	}
+
+	Load256(inverse, dx[(GRP_SIZE / 2 + 1) - 1]);
+	inverse[4] = 0;
+	_ModInv(inverse);
+
+	for (uint32_t i = (GRP_SIZE / 2 + 1) - 1; i > 0; i--) {
+		LoadDeltaX(value, sx, i);
+		_ModMult(newValue, dx[i - 1], inverse);
+		_ModMult(inverse, value);
+		Load256(dx[i], newValue);
+	}
+
+	Load256(dx[0], inverse);
+}
+
 __device__ void ComputeKeysSEARCH_MODE_MA(uint32_t mode, uint64_t* startx, uint64_t* starty,
 	uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, int32_t baseOffset, uint32_t maxFound, uint32_t* out)
 {
@@ -393,15 +429,9 @@ __device__ void ComputeKeysSEARCH_MODE_MA(uint32_t mode, uint64_t* startx, uint6
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);   // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx); // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group
@@ -535,15 +565,9 @@ __device__ void ComputeKeysSEARCH_MODE_SA(uint32_t mode, uint64_t* startx, uint6
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);   // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx); // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group
@@ -659,15 +683,9 @@ __device__ void ComputeKeysSEARCH_MODE_MX(uint32_t mode, uint64_t* startx, uint6
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);   // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx); // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group
@@ -781,15 +799,9 @@ __device__ void ComputeKeysSEARCH_MODE_SX(uint32_t mode, uint64_t* startx, uint6
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);      // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx);       // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group
@@ -946,15 +958,9 @@ __device__ void ComputeKeysSEARCH_ETH_MODE_MA(uint64_t* startx, uint64_t* starty
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);   // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx); // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group
@@ -1105,15 +1111,9 @@ __device__ void ComputeKeysSEARCH_ETH_MODE_SA(uint64_t* startx, uint64_t* starty
 	Load256(px, sx);
 	Load256(py, sy);
 
-	// Fill group with delta x
-	uint32_t i;
-	for (i = 0; i < HSIZE; i++)
-		ModSub256(dx[i], Gx + 4 * i, sx);
-	ModSub256(dx[i], Gx + 4 * i, sx);   // For the first point
-	ModSub256(dx[i + 1], _2Gnx, sx); // For the next center point
+	FillAndModInvGroupedDeltaX(dx, sx);
 
-	// Compute modular inverse
-	_ModInvGrouped(dx);
+	uint32_t i;
 
 	// We use the fact that P + i*G and P - i*G has the same deltax, so the same inverse
 	// We compute key in the positive and negative way from the center of the group

@@ -91,7 +91,7 @@ Rotor::Rotor(const std::string& inputFile, int compMode, int searchMode, int coi
 
 	bloom = new Bloom(2 * N, 0.000001);
 
-	uint64_t percent = (N - 1) / 100;
+	unsigned long long percent = (unsigned long long)((N - 1) / 100);
 	uint64_t i = 0;
 	printf("\n");
 	while (i < N && !should_exit) {
@@ -101,7 +101,7 @@ Rotor::Rotor(const std::string& inputFile, int compMode, int searchMode, int coi
 			bloom->add(buf, K_LENGTH);
 			memcpy(DATA + (i * K_LENGTH), buf, K_LENGTH);
 			if ((percent != 0) && i % percent == 0) {
-				printf("\r  Loading      : %llu %%", (i / percent));
+				printf("\r  Loading      : %llu %%", (unsigned long long)(i / percent));
 				fflush(stdout);
 			}
 		}
@@ -783,7 +783,7 @@ void Rotor::FindKeyCPU(TH_PARAM * ph)
 				    }
                 }
 				if (display > 0) {
-					printf("  Base Key     : Randomly changes %d Private keys every %llu,000,000,000 on the counter\n\n", nbCPUThread, rKey);
+					printf("  Base Key     : Randomly changes %d Private keys every %llu,000,000,000 on the counter\n\n", nbCPUThread, (unsigned long long)rKey);
 				}
 			}
 		}
@@ -1053,7 +1053,7 @@ void Rotor::getGPUStartingKeys(Int & tRangeStart, Int & tRangeEnd, int groupSize
 			
 			if (rKeyCount2 == 0) {
 				if (display > 0) {
-					printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n", nbThread, rKey);
+					printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n", nbThread, (unsigned long long)rKey);
 					printf("  ROTOR Random : Min %d (bit) %s \n", rangeStart.GetBitLength(), rangeStart.GetBase16().c_str());
 					printf("  ROTOR Random : Max %d (bit) %s \n\n", rangeEnd.GetBitLength(), rangeEnd.GetBase16().c_str());
 				}
@@ -1095,7 +1095,7 @@ void Rotor::getGPUStartingKeys(Int & tRangeStart, Int & tRangeEnd, int groupSize
 						}
 					}
 					if (display > 0) {
-						printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n\n", nbThread, rKey);
+						printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n\n", nbThread, (unsigned long long)rKey);
 					}
 				}
 
@@ -1134,7 +1134,7 @@ void Rotor::getGPUStartingKeys(Int & tRangeStart, Int & tRangeEnd, int groupSize
 				if (rKeyCount2 == 0) {
 					if (display > 0) {
 						printf("  Rotor Random : Private keys random 95%% (252-256) bit + 5%% (248-252) bit\n");
-						printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n\n", nbThread, rKey);
+						printf("  Base Key     : Randomly changes %d start Private keys every %llu,000,000,000 on the counter\n\n", nbThread, (unsigned long long)rKey);
 					}
 				}
 
@@ -1576,7 +1576,7 @@ void Rotor::Search(int nbThread, std::vector<int> gpuId, std::vector<int> gridSi
 	Int ICount;
 	p100.SetInt32(100);
 	double completedPerc = 0;
-	uint64_t rKeyCount = 0;
+	unsigned long long rKeyCount = 0;
 	while (isAlive(params)) {
 
 		int delay = 1000;
@@ -2029,7 +2029,7 @@ void Rotor::Search(int nbThread, std::vector<int> gpuId, std::vector<int> gridSi
 
 									if (isAlive(params)) {
 										memset(timeStr, '\0', 256);
-										printf("\r  [%s] [%s] [F: %d] [C: %lf %%] [GPU: %.2f Gk/s] [T: %s]  ",
+										printf("\r  [%s] [%s] [F: %d] [%02llu:%02llu:%02llu] [C: %lf %%] [GPU: %.2f Gk/s] [T: %s]  ",
 											toTimeStr(t1, timeStr),
 											rhex.GetBase16().c_str(),
 											nbFoundKey,
@@ -3364,7 +3364,7 @@ std::string Rotor::formatThousands(uint64_t x)
 {
 	char buf[32] = "";
 
-	sprintf(buf, "%llu", x);
+	sprintf(buf, "%llu", (unsigned long long)x);
 
 	std::string s(buf);
 
