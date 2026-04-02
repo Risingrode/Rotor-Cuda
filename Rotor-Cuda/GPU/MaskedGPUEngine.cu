@@ -69,6 +69,13 @@ __device__ __forceinline__ void SubP256(uint64_t* value) {
     USUB1(value[3], 0xFFFFFFFFFFFFFFFFULL);
 }
 
+__device__ __forceinline__ void AddPWrap256(uint64_t* value) {
+    UADDO1(value[0], 0x1000003D1ULL);
+    UADDC1(value[1], 0ULL);
+    UADDC1(value[2], 0ULL);
+    UADD1(value[3], 0ULL);
+}
+
 __device__ __forceinline__ void ModDouble256(uint64_t* result, const uint64_t* value) {
     uint64_t carry;
     UADDO(result[0], value[0], value[0]);
@@ -76,7 +83,10 @@ __device__ __forceinline__ void ModDouble256(uint64_t* result, const uint64_t* v
     UADDC(result[2], value[2], value[2]);
     UADDC(result[3], value[3], value[3]);
     UADD(carry, 0ULL, 0ULL);
-    if (carry || IsGeP(result)) {
+    if (carry) {
+        AddPWrap256(result);
+    }
+    if (IsGeP(result)) {
         SubP256(result);
     }
 }
