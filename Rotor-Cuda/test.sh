@@ -15,7 +15,7 @@ CASE="${CASE:-selfhit}"
 case "$CASE" in
   selfhit)
     default_prefix='4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5'
-    default_addr='14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy'
+    default_addr='1ETYE4BhFLL1FHippkj6vRURYhMua5JYkP'
     default_sets='AF,26,E7,05,3C,8F,94,7D,A5,2C,8E,D4,8A,B6,4D,49,A7,1E,35,B8,12,C3,0F'
     ;;
   sample_nomatch)
@@ -110,6 +110,7 @@ echo
 
 cmd=(
   "$ROTOR_BIN"
+  -u
   -m "$SEARCH_MODE"
   --coin "$COIN"
   --prob-profile "$PROB_PROFILE"
