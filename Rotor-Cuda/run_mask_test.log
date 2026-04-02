@@ -1,0 +1,41 @@
+
+  Rotor-Cuda v2.0  Mehdi256
+
+  COMP MODE    : COMPRESSED
+  COIN TYPE    : BITCOIN
+  SEARCH MODE  : Single Address
+  DEVICE       : CPU
+  SSE          : YES
+  BTC ADDRESS  : 14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy
+  MASK PREFIX  : 4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5
+  MASK SETS    : A,2,E,0,3,8,9,7,A,2,8,D,8,B,4,4,A,1,3,B,1,C,0
+  MASK RULES   : no3same=ON, no3seq=ON
+  PROB PROFILE : none
+  MASK DEVICE  : CPU
+  OUTPUT FILE  : found_mask_test.txt
+  MASK MODE    : SUFFIX CHARSETS (CPU)
+  COIN TYPE    : BITCOIN
+  COMP MODE    : COMPRESSED
+  TARGET       : 14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy
+  KNOWN PREFIX : 4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5
+  PREFIX INFO  : len=41 digit=25 letter=16 pattern=[1:4 2:4 3:4 5:2 7:1] adjpair=5 missing=1 [E]
+  UNKNOWN TAIL : 23 hex chars
+  SUFFIX SETS  : A,2,E,0,3,8,9,7,A,2,8,D,8,B,4,4,A,1,3,B,1,C,0
+  RULES        : no3same=ON no3seq=ON
+  THREADS      : 1
+  TASK DEPTH   : 23 leading masked chars (1 tasks)
+  KEYSPACE     : 1 candidate
+  OUTPUT FILE  : found_mask_test.txt
+  PROB TABLE   : no built-in profile matched this prefix (requested=none)
+
+
+  ================================================================================================
+  PubAddress: 14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy
+  Priv (WIF): KySJRfQ5BzMYEYaJEqnPyiX9QjxG9idLjDaEJVeDYr1WLZA4T9gj
+  Priv (HEX): 4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5A2E03897A28D8B44A13B1C0
+  PubK (HEX): 03C880AC08D9665D15A9CC00ACFE981C242701BB4EFE9F5784F21EBB4E890A4D63
+  Mask prefix: 4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5
+  Mask sets  : A,2,E,0,3,8,9,7,A,2,8,D,8,B,4,4,A,1,3,B,1,C,0
+  Prefix stat: digit=25 letter=16 pattern=[1:4 2:4 3:4 5:2 7:1] adjpair=5
+
+  [MASK] [Tried: 1] [Rate: 1.00 k/s] [Tasks: 1/1]    

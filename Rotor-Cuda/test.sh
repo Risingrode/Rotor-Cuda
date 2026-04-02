@@ -5,13 +5,34 @@ cd "$(dirname "$0")"
 
 # =========================
 # Masked search test script
-# 可通过环境变量覆盖下面参数
+# 默认跑“必命中”自测样例
+# 原始无命中样例可通过 CASE=sample_nomatch 切换
+# 仍可通过环境变量覆盖 PREFIX / ADDR / SETS_REAL
 # =========================
 
-export PREFIX="${PREFIX:-D0AC934BA9987E529BF3150373B63BD06849D740A}"
-export ADDR="${ADDR:-17SGFkZyNGbtjKqP3GnEH5CVRzQ6YAqcbU}"
-export SETS_REAL="${SETS_REAL:-01,AB,12,BC,23,CD,34,DC,43,ED,54,FE01,6578,0F12,76,10,87,2134,98AB,3245,A9BC,4356,BACD}"
-# 对应示例尾部: 0A1B2C3D4E5F60718293A4B
+CASE="${CASE:-selfhit}"
+
+case "$CASE" in
+  selfhit)
+    default_prefix='4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5'
+    default_addr='14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy'
+    default_sets='A,2,E,0,3,8,9,7,A,2,8,D,8,B,4,4,A,1,3,B,1,C,0'
+    ;;
+  sample_nomatch)
+    default_prefix='D0AC934BA9987E529BF3150373B63BD06849D740A'
+    default_addr='17SGFkZyNGbtjKqP3GnEH5CVRzQ6YAqcbU'
+    default_sets='01,AB,12,BC,23,CD,34,DC,43,ED,54,FE01,6578,0F12,76,10,87,2134,98AB,3245,A9BC,4356,BACD'
+    ;;
+  *)
+    echo "[!] Unknown CASE: $CASE" >&2
+    echo "[!] Supported CASE values: selfhit, sample_nomatch" >&2
+    exit 1
+    ;;
+esac
+
+export PREFIX="${PREFIX:-$default_prefix}"
+export ADDR="${ADDR:-$default_addr}"
+export SETS_REAL="${SETS_REAL:-$default_sets}"
 
 export COIN="${COIN:-BTC}"
 export SEARCH_MODE="${SEARCH_MODE:-address}"
@@ -58,6 +79,7 @@ sets = [x.strip() for x in sets_raw.split(",") if x.strip()]
 print("[*] prefix len         =", len(prefix))
 print("[*] suffix group count =", len(sets))
 print("[*] target address     =", addr)
+print("[*] case               =", os.environ.get("CASE", "selfhit"))
 
 if len(sets) != 23:
     print("[!] ERROR: suffix group count must be 23", file=sys.stderr)
@@ -74,6 +96,7 @@ if bad:
 PY
 
 echo "[*] USE_GPU      = $USE_GPU"
+echo "[*] CASE         = $CASE"
 echo "[*] GPUI         = $GPUI"
 echo "[*] GPUX         = $GPUX"
 echo "[*] PROB_PROFILE = $PROB_PROFILE"
