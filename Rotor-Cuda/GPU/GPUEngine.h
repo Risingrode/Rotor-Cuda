@@ -21,7 +21,8 @@
 #include <vector>
 #include "../SECP256k1.h"
 
-#ifdef WITHGPU
+#if defined(WITHGPU) || defined(__CUDACC__)
+#define ROTOR_CUDA_TYPES_AVAILABLE 1
 #include <cuda_runtime.h>
 #endif
 
@@ -140,7 +141,7 @@ private:
 	uint8_t* DATA;
 	uint64_t TOTAL_COUNT;
 
-#ifdef WITHGPU
+#ifdef ROTOR_CUDA_TYPES_AVAILABLE
 	cudaStream_t kernelStream;
 	cudaEvent_t kernelCompletedEvent;
 #endif

@@ -6,7 +6,8 @@
 #include <vector>
 #include "GPUEngine.h"
 
-#ifdef WITHGPU
+#if defined(WITHGPU) || defined(__CUDACC__)
+#define ROTOR_MASKED_CUDA_TYPES_AVAILABLE 1
 #include <cuda_runtime.h>
 #endif
 
@@ -97,7 +98,7 @@ private:
     uint32_t compMode_;
     uint32_t coinType_;
 
-#ifdef WITHGPU
+#ifdef ROTOR_MASKED_CUDA_TYPES_AVAILABLE
     cudaStream_t stream_;
     cudaEvent_t kernelDone_;
 #endif
