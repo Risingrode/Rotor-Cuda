@@ -16,7 +16,7 @@ case "$CASE" in
   selfhit)
     default_prefix='4226D9811DDB6397F1DBB6BF73359A6C5B04DB6B5'
     default_addr='14JiAhBSdHjEPG92jRuKVJcABaGV7R6vBy'
-    default_sets='A,2,E,0,3,8,9,7,A,2,8,D,8,B,4,4,A,1,3,B,1,C,0'
+    default_sets='AF,26,E7,05,3C,8F,94,7D,A5,2C,8E,D4,8A,B6,4D,49,A7,1E,35,B8,12,C3,0F'
     ;;
   sample_nomatch)
     default_prefix='D0AC934BA9987E529BF3150373B63BD06849D740A'
