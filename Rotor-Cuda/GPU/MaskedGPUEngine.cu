@@ -1,0 +1,440 @@
+#include "MaskedGPUEngine.h"
+
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+
+#include <cstdio>
+#include <cstring>
+
+#include "GPUMath.h"
+#include "GPUHash.h"
+
+#define CudaSafeCall(err) __cudaSafeCall((err), __FILE__, __LINE__)
+
+inline void __cudaSafeCall(cudaError err, const char* file, const int line) {
+    if (cudaSuccess != err) {
+        fprintf(stderr, "cudaSafeCall() failed at %s:%i : %s\n", file, line, cudaGetErrorString(err));
+        exit(-1);
+    }
+}
+
+namespace {
+
+struct DevicePoint {
+    uint64_t x[4];
+    uint64_t y[4];
+    uint64_t z[4];
+    uint8_t set;
+};
+
+__device__ __constant__ MaskedGPUCharsetConfig c_maskedCfg;
+__device__ __constant__ MaskedGPUTask c_maskedTask;
+
+__device__ __forceinline__ void Copy256(uint64_t* dst, const uint64_t* src) {
+    dst[0] = src[0];
+    dst[1] = src[1];
+    dst[2] = src[2];
+    dst[3] = src[3];
+}
+
+__device__ __forceinline__ bool IsZero256(const uint64_t* value) {
+    return value[0] == 0ULL && value[1] == 0ULL && value[2] == 0ULL && value[3] == 0ULL;
+}
+
+__device__ __forceinline__ bool IsOne256(const uint64_t* value) {
+    return value[0] == 1ULL && value[1] == 0ULL && value[2] == 0ULL && value[3] == 0ULL;
+}
+
+__device__ __forceinline__ bool IsGeP(const uint64_t* value) {
+    if (value[3] != 0xFFFFFFFFFFFFFFFFULL) return value[3] > 0xFFFFFFFFFFFFFFFFULL;
+    if (value[2] != 0xFFFFFFFFFFFFFFFFULL) return value[2] > 0xFFFFFFFFFFFFFFFFULL;
+    if (value[1] != 0xFFFFFFFFFFFFFFFFULL) return value[1] > 0xFFFFFFFFFFFFFFFFULL;
+    return value[0] >= 0xFFFFFFFEFFFFFC2FULL;
+}
+
+__device__ __forceinline__ void SubP256(uint64_t* value) {
+    USUBO1(value[0], 0xFFFFFFFEFFFFFC2FULL);
+    USUBC1(value[1], 0xFFFFFFFFFFFFFFFFULL);
+    USUBC1(value[2], 0xFFFFFFFFFFFFFFFFULL);
+    USUB1(value[3], 0xFFFFFFFFFFFFFFFFULL);
+}
+
+__device__ __forceinline__ void ModDouble256(uint64_t* result, const uint64_t* value) {
+    uint64_t carry;
+    UADDO(result[0], value[0], value[0]);
+    UADDC(result[1], value[1], value[1]);
+    UADDC(result[2], value[2], value[2]);
+    UADD(result[3], value[3], value[3]);
+    UADD(carry, 0ULL, 0ULL);
+    if (carry || IsGeP(result)) {
+        SubP256(result);
+    }
+}
+
+__device__ __forceinline__ void SetAffine(DevicePoint* point, const uint64_t* x, const uint64_t* y) {
+    Copy256(point->x, x);
+    Copy256(point->y, y);
+    point->z[0] = 1ULL;
+    point->z[1] = 0ULL;
+    point->z[2] = 0ULL;
+    point->z[3] = 0ULL;
+    point->set = 1;
+}
+
+__device__ void ReducePoint(DevicePoint* point) {
+    if (!point->set || IsOne256(point->z)) {
+        return;
+    }
+
+    uint64_t inv320[5];
+    inv320[0] = point->z[0];
+    inv320[1] = point->z[1];
+    inv320[2] = point->z[2];
+    inv320[3] = point->z[3];
+    inv320[4] = 0ULL;
+    _ModInv(inv320);
+
+    uint64_t inv[4];
+    inv[0] = inv320[0];
+    inv[1] = inv320[1];
+    inv[2] = inv320[2];
+    inv[3] = inv320[3];
+
+    _ModMult(point->x, inv);
+    _ModMult(point->y, inv);
+    point->z[0] = 1ULL;
+    point->z[1] = 0ULL;
+    point->z[2] = 0ULL;
+    point->z[3] = 0ULL;
+}
+
+__device__ void AddAffine(DevicePoint* point, const uint64_t* x2, const uint64_t* y2) {
+    if (!point->set) {
+        SetAffine(point, x2, y2);
+        return;
+    }
+
+    uint64_t ax[4];
+    uint64_t ay[4];
+    uint64_t u1[4];
+    uint64_t v1[4];
+    uint64_t u[4];
+    uint64_t v[4];
+    uint64_t us2[4];
+    uint64_t vs2[4];
+    uint64_t vs3[4];
+    uint64_t us2w[4];
+    uint64_t vs2v2[4];
+    uint64_t two_vs2v2[4];
+    uint64_t a[4];
+    uint64_t vs3u2[4];
+
+    Copy256(ax, x2);
+    Copy256(ay, y2);
+
+    _ModMult(u1, ay, point->z);
+    _ModMult(v1, ax, point->z);
+    ModSub256(u, u1, point->y);
+    ModSub256(v, v1, point->x);
+    _ModSqr(us2, u);
+    _ModSqr(vs2, v);
+    _ModMult(vs3, vs2, v);
+    _ModMult(us2w, us2, point->z);
+    _ModMult(vs2v2, vs2, point->x);
+    ModDouble256(two_vs2v2, vs2v2);
+
+    Copy256(a, us2w);
+    ModSub256(a, vs3);
+    ModSub256(a, two_vs2v2);
+
+    _ModMult(point->x, v, a);
+    _ModMult(vs3u2, vs3, point->y);
+    ModSub256(point->y, vs2v2, a);
+    _ModMult(point->y, u);
+    ModSub256(point->y, vs3u2);
+    _ModMult(point->z, vs3, point->z);
+    point->set = 1;
+}
+
+__device__ __forceinline__ bool MatchHash160(const uint32_t* candidate) {
+    return candidate[0] == c_maskedCfg.target[0] &&
+           candidate[1] == c_maskedCfg.target[1] &&
+           candidate[2] == c_maskedCfg.target[2] &&
+           candidate[3] == c_maskedCfg.target[3] &&
+           candidate[4] == c_maskedCfg.target[4];
+}
+
+__global__ void masked_search_kernel(uint32_t* foundCount, MaskedGPUHit* foundHits, uint32_t maxFound) {
+    const uint64_t globalIdx = c_maskedTask.batchStart +
+        (uint64_t)(blockIdx.x * blockDim.x + threadIdx.x);
+
+    if (globalIdx >= c_maskedTask.batchStart + c_maskedTask.batchCount) {
+        return;
+    }
+
+    uint8_t choiceSlots[MASKED_GPU_MAX_SUFFIX];
+    uint64_t decode = globalIdx;
+    for (int pos = (int)c_maskedCfg.suffixLen - 1; pos >= (int)c_maskedTask.startPos; --pos) {
+        uint8_t radix = c_maskedCfg.radices[pos];
+        choiceSlots[pos] = (uint8_t)(decode % (uint64_t)radix);
+        decode /= (uint64_t)radix;
+    }
+
+    DevicePoint point;
+    point.set = c_maskedTask.pointSet;
+    Copy256(point.x, c_maskedTask.baseX);
+    Copy256(point.y, c_maskedTask.baseY);
+    Copy256(point.z, c_maskedTask.baseZ);
+
+    int last1 = (int)c_maskedTask.last1;
+    int last2 = (int)c_maskedTask.last2;
+    int cmpState = (int)c_maskedTask.cmpState;
+    bool hasNonZero = c_maskedTask.hasNonZero != 0;
+
+    for (int pos = (int)c_maskedTask.startPos; pos < (int)c_maskedCfg.suffixLen; ++pos) {
+        uint8_t slot = choiceSlots[pos];
+        uint8_t value = c_maskedCfg.values[pos][slot];
+
+        if (c_maskedCfg.forbidTripleSame && last2 == (int)value && last1 == (int)value) {
+            return;
+        }
+        if (c_maskedCfg.forbidTripleRun && last2 >= 0 && last1 >= 0) {
+            if ((last2 + 1) == last1 && (last1 + 1) == (int)value) {
+                return;
+            }
+            if ((last2 - 1) == last1 && (last1 - 1) == (int)value) {
+                return;
+            }
+        }
+
+        if (cmpState == 0) {
+            uint8_t bound = c_maskedCfg.bound[pos];
+            if (value > bound) {
+                return;
+            }
+            if (value < bound) {
+                cmpState = -1;
+            }
+        }
+
+        last2 = last1;
+        last1 = (int)value;
+
+        if (value != 0 && c_maskedCfg.pointPresent[pos][slot]) {
+            AddAffine(&point, c_maskedCfg.pointX[pos][slot], c_maskedCfg.pointY[pos][slot]);
+            hasNonZero = true;
+        }
+    }
+
+    if (!hasNonZero || !point.set) {
+        return;
+    }
+
+    ReducePoint(&point);
+
+    uint32_t h[5];
+    uint32_t matchMode = 0U;
+    bool matched = false;
+
+    if (c_maskedCfg.coinType == COIN_BTC) {
+        if (c_maskedCfg.compMode == SEARCH_COMPRESSED || c_maskedCfg.compMode == SEARCH_BOTH) {
+            _GetHash160Comp(point.x, (uint8_t)(point.y[0] & 1ULL), (uint8_t*)h);
+            if (MatchHash160(h)) {
+                matched = true;
+                matchMode = 1U;
+            }
+        }
+        if (!matched && (c_maskedCfg.compMode == SEARCH_UNCOMPRESSED || c_maskedCfg.compMode == SEARCH_BOTH)) {
+            _GetHash160(point.x, point.y, (uint8_t*)h);
+            if (MatchHash160(h)) {
+                matched = true;
+                matchMode = 0U;
+            }
+        }
+    }
+    else {
+        _GetHashKeccak160(point.x, point.y, h);
+        if (MatchHash160(h)) {
+            matched = true;
+            matchMode = 0U;
+        }
+    }
+
+    if (!matched) {
+        return;
+    }
+
+    uint32_t pos = atomicAdd(foundCount, 1U);
+    if (pos < maxFound) {
+        foundHits[pos].localIndex = globalIdx - c_maskedTask.batchStart;
+        foundHits[pos].mode = matchMode;
+        foundHits[pos].reserved = 0U;
+    }
+}
+
+int ConvertSMVer2Cores(int major, int minor) {
+    typedef struct {
+        int SM;
+        int Cores;
+    } sSMtoCores;
+
+    sSMtoCores nGpuArchCoresPerSM[] = {
+        {0x20, 32}, {0x21, 48}, {0x30, 192}, {0x32, 192}, {0x35, 192}, {0x37, 192},
+        {0x50, 128}, {0x52, 128}, {0x53, 128}, {0x60, 64}, {0x61, 128}, {0x62, 128},
+        {0x70, 64}, {0x72, 64}, {0x75, 64}, {0x80, 64}, {0x86, 128}, {-1, -1}
+    };
+
+    int index = 0;
+    while (nGpuArchCoresPerSM[index].SM != -1) {
+        if (nGpuArchCoresPerSM[index].SM == ((major << 4) + minor)) {
+            return nGpuArchCoresPerSM[index].Cores;
+        }
+        index++;
+    }
+    return 0;
+}
+
+} // namespace
+
+MaskedGPUCharsetConfig::MaskedGPUCharsetConfig()
+    : suffixLen(0)
+    , compMode(SEARCH_COMPRESSED)
+    , coinType(COIN_BTC)
+    , forbidTripleSame(1)
+    , forbidTripleRun(1) {
+    std::memset(target, 0, sizeof(target));
+    std::memset(reserved0, 0, sizeof(reserved0));
+    std::memset(radices, 0, sizeof(radices));
+    std::memset(bound, 0, sizeof(bound));
+    std::memset(values, 0, sizeof(values));
+    std::memset(pointPresent, 0, sizeof(pointPresent));
+    std::memset(pointX, 0, sizeof(pointX));
+    std::memset(pointY, 0, sizeof(pointY));
+}
+
+MaskedGPUTask::MaskedGPUTask()
+    : batchStart(0)
+    , batchCount(0)
+    , pointSet(0)
+    , hasNonZero(0)
+    , last1(-1)
+    , last2(-1)
+    , cmpState(0)
+    , startPos(0) {
+    std::memset(baseX, 0, sizeof(baseX));
+    std::memset(baseY, 0, sizeof(baseY));
+    std::memset(baseZ, 0, sizeof(baseZ));
+    std::memset(reserved1, 0, sizeof(reserved1));
+}
+
+MaskedGPUEngine::MaskedGPUEngine(int gpuId,
+                                 int nbThreadGroup,
+                                 int nbThreadPerGroup,
+                                 uint32_t maxFound,
+                                 const MaskedGPUCharsetConfig& config)
+    : gpuId_(gpuId)
+    , nbThreadGroup_(nbThreadGroup)
+    , nbThreadPerGroup_(nbThreadPerGroup > 0 ? nbThreadPerGroup : 128)
+    , nbThread_(0)
+    , maxFound_(maxFound)
+    , initialised_(false)
+    , outputCount_(NULL)
+    , outputCountPinned_(NULL)
+    , outputHits_(NULL)
+    , outputHitsPinned_(NULL) {
+
+    int deviceCount = 0;
+    CudaSafeCall(cudaGetDeviceCount(&deviceCount));
+    if (deviceCount == 0) {
+        printf("MaskedGPUEngine: There are no available device(s) that support CUDA\n");
+        return;
+    }
+
+    CudaSafeCall(cudaSetDevice(gpuId_));
+
+    cudaDeviceProp deviceProp;
+    CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId_));
+
+    if (nbThreadGroup_ <= 0) {
+        nbThreadGroup_ = deviceProp.multiProcessorCount * 8;
+    }
+    nbThread_ = nbThreadGroup_ * nbThreadPerGroup_;
+
+    char tmp[512];
+    sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d)",
+        gpuId_, deviceProp.name, deviceProp.multiProcessorCount,
+        ConvertSMVer2Cores(deviceProp.major, deviceProp.minor),
+        nbThreadGroup_, nbThreadPerGroup_);
+    deviceName_ = std::string(tmp);
+
+    CudaSafeCall(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
+
+    CudaSafeCall(cudaMalloc((void**)&outputCount_, sizeof(uint32_t)));
+    CudaSafeCall(cudaHostAlloc(&outputCountPinned_, sizeof(uint32_t), cudaHostAllocWriteCombined | cudaHostAllocMapped));
+    CudaSafeCall(cudaMalloc((void**)&outputHits_, sizeof(MaskedGPUHit) * maxFound_));
+    CudaSafeCall(cudaHostAlloc(&outputHitsPinned_, sizeof(MaskedGPUHit) * maxFound_, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+
+    CudaSafeCall(cudaMemcpyToSymbol(c_maskedCfg, &config, sizeof(MaskedGPUCharsetConfig)));
+    CudaSafeCall(cudaGetLastError());
+    initialised_ = true;
+}
+
+MaskedGPUEngine::~MaskedGPUEngine() {
+    if (outputHitsPinned_ != NULL) {
+        CudaSafeCall(cudaFreeHost(outputHitsPinned_));
+    }
+    if (outputHits_ != NULL) {
+        CudaSafeCall(cudaFree(outputHits_));
+    }
+    if (outputCountPinned_ != NULL) {
+        CudaSafeCall(cudaFreeHost(outputCountPinned_));
+    }
+    if (outputCount_ != NULL) {
+        CudaSafeCall(cudaFree(outputCount_));
+    }
+}
+
+bool MaskedGPUEngine::IsInitialised() const {
+    return initialised_;
+}
+
+int MaskedGPUEngine::GetNbThread() const {
+    return nbThread_;
+}
+
+int MaskedGPUEngine::GetGroupSize() const {
+    return nbThreadPerGroup_;
+}
+
+const std::string& MaskedGPUEngine::GetDeviceName() const {
+    return deviceName_;
+}
+
+bool MaskedGPUEngine::SearchBatch(const MaskedGPUTask& task, std::vector<MaskedGPUHit>& hits) {
+    hits.clear();
+    if (!initialised_) {
+        return false;
+    }
+
+    CudaSafeCall(cudaMemcpyToSymbol(c_maskedTask, &task, sizeof(MaskedGPUTask)));
+    CudaSafeCall(cudaMemset(outputCount_, 0, sizeof(uint32_t)));
+
+    masked_search_kernel<<<nbThreadGroup_, nbThreadPerGroup_>>>(outputCount_, outputHits_, maxFound_);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("MaskedGPUEngine: Kernel: %s\n", cudaGetErrorString(err));
+        return false;
+    }
+
+    CudaSafeCall(cudaMemcpy(outputCountPinned_, outputCount_, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    uint32_t count = *outputCountPinned_;
+    if (count > maxFound_) {
+        count = maxFound_;
+    }
+    if (count > 0) {
+        CudaSafeCall(cudaMemcpy(outputHitsPinned_, outputHits_, sizeof(MaskedGPUHit) * count, cudaMemcpyDeviceToHost));
+        hits.assign(outputHitsPinned_, outputHitsPinned_ + count);
+    }
+    return true;
+}

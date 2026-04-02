@@ -5,7 +5,7 @@
 # Patch  : destructive clean with safety checks
 #---------------------------------------------------------------------
 
-SRC = Base58.cpp IntGroup.cpp Main.cpp Bloom.cpp Random.cpp Sort.cpp \
+SRC = Base58.cpp IntGroup.cpp Main.cpp MaskedSearch.cpp Bloom.cpp Random.cpp Sort.cpp \
       Timer.cpp Int.cpp IntMod.cpp Point.cpp SECP256K1.cpp \
       Rotor.cpp GPU/GPUGenerate.cpp hash/ripemd160.cpp \
       hash/sha256.cpp hash/sha512.cpp hash/ripemd160_sse.cpp \
@@ -16,16 +16,16 @@ OBJDIR = obj
 ifdef gpu
 
 OBJET = $(addprefix $(OBJDIR)/, \
-        Base58.o IntGroup.o Main.o Bloom.o Random.o Sort.o Timer.o Int.o \
+        Base58.o IntGroup.o Main.o MaskedSearch.o Bloom.o Random.o Sort.o Timer.o Int.o \
         IntMod.o Point.o SECP256K1.o Rotor.o GPU/GPUGenerate.o \
         hash/ripemd160.o hash/sha256.o hash/sha512.o \
         hash/ripemd160_sse.o hash/sha256_sse.o hash/keccak160.o \
-        GPU/GPUEngine.o GmpUtil.o CmdParse.o)
+        GPU/GPUEngine.o GPU/MaskedGPUEngine.o GmpUtil.o CmdParse.o)
 
 else
 
 OBJET = $(addprefix $(OBJDIR)/, \
-        Base58.o IntGroup.o Main.o Bloom.o Random.o Sort.o Timer.o Int.o \
+        Base58.o IntGroup.o Main.o MaskedSearch.o Bloom.o Random.o Sort.o Timer.o Int.o \
         IntMod.o Point.o SECP256K1.o Rotor.o GPU/GPUGenerate.o \
         hash/ripemd160.o hash/sha256.o hash/sha512.o \
         hash/ripemd160_sse.o hash/sha256_sse.o hash/keccak160.o \
@@ -63,9 +63,15 @@ ifdef gpu
 ifdef debug
 $(OBJDIR)/GPU/GPUEngine.o: GPU/GPUEngine.cu
 	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c GPU/GPUEngine.cu
+
+$(OBJDIR)/GPU/MaskedGPUEngine.o: GPU/MaskedGPUEngine.cu
+	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c GPU/MaskedGPUEngine.cu
 else
 $(OBJDIR)/GPU/GPUEngine.o: GPU/GPUEngine.cu
 	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c GPU/GPUEngine.cu
+
+$(OBJDIR)/GPU/MaskedGPUEngine.o: GPU/MaskedGPUEngine.cu
+	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c GPU/MaskedGPUEngine.cu
 endif
 endif
 

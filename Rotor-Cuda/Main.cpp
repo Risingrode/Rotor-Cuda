@@ -1,5 +1,6 @@
 #include "Timer.h"
 #include "Rotor.h"
+#include "MaskedSearch.h"
 #include "Base58.h"
 #include "CmdParse.h"
 #include <fstream>
@@ -58,6 +59,14 @@ void usage()
 	printf("-n, --next                                   : 随机模式：指定随机 bit 范围。-n 1-256，例如 -n 252，默认：252-256 bit\n");
 	printf("-z, --zet                                    : 随机模式：随机结束范围。例如 -n 71 -z 74（在 71、72、73、74 bit 谜题范围内随机），默认：false\n");
 	printf("-d, --display                                : 禁用所有信息显示，适用于多 GPU 的精简输出。使用 -d 0，默认 -d 1（显示全部）\n");
+	printf("--prefix HEX                                 : 启用尾部掩码搜索时，指定已知私钥前缀（十六进制）\n");
+	printf("--suffixsets S1,S2,...                       : 启用尾部掩码搜索时，为每个缺失 hex 位指定字符集/范围，例如 0-3,89AB,*\n");
+	printf("--allow3same                                 : 允许出现 3 个连续相同字符（默认禁止）\n");
+	printf("--allow3seq                                  : 允许出现 3 个连续递增/递减字符（默认禁止）\n");
+	printf("--prob-profile auto|none|sample41            : 概率画像；auto 会对匹配前缀自动启用内置 sample41 画像\n");
+	printf("--strict-tailmode                            : 仅保留落在内置 Top Tail Mode 概率表中的候选\n");
+	printf("--hide-prob                                  : 不打印概率画像和启发式表信息\n");
+	printf("                                              掩码模式支持 CPU；GPU V1 支持单地址 + 规则过滤，但暂不支持概率画像剪枝\n");
 }
 
 
@@ -212,6 +221,12 @@ int main(int argc, char** argv)
 	int display = 1;
 	int zet = 0;
 	string outputFile = "Found.txt";
+	string maskPrefix = "";
+	string maskSuffixSets = "";
+	MaskedSearchConfig maskConfig;
+	bool maskPrefixSpecified = false;
+	bool maskSuffixSetsSpecified = false;
+	bool rangeSpecified = false;
 
 	string inputFile = "";	// for both multiple hash160s and x points
 	string address = "";	// for single address mode
@@ -258,6 +273,13 @@ int main(int argc, char** argv)
 	parser.add("-n", "--next", true);
 	parser.add("-z", "--zet", true);
 	parser.add("-d", "--display", true);
+	parser.add("", "--prefix", true);
+	parser.add("", "--suffixsets", true);
+	parser.add("", "--allow3same", false);
+	parser.add("", "--allow3seq", false);
+	parser.add("", "--prob-profile", true);
+	parser.add("", "--strict-tailmode", false);
+	parser.add("", "--hide-prob", false);
 	if (argc == 1) {
 		usage();
 		return 0;
@@ -340,6 +362,7 @@ int main(int argc, char** argv)
 				coinType = parseCoinType(optArg.arg);
 			}
 			else if (optArg.equals("", "--range")) {
+				rangeSpecified = true;
 				std::string range = optArg.arg;
 				parseRange(range, rangeStart, rangeEnd);
 			}
@@ -354,6 +377,29 @@ int main(int argc, char** argv)
 			}
 			else if (optArg.equals("-d", "--display")) {
 				display = std::stoull(optArg.arg);
+			}
+			else if (optArg.equals("", "--prefix")) {
+				maskPrefix = optArg.arg;
+				maskPrefixSpecified = true;
+			}
+			else if (optArg.equals("", "--suffixsets")) {
+				maskSuffixSets = optArg.arg;
+				maskSuffixSetsSpecified = true;
+			}
+			else if (optArg.equals("", "--allow3same")) {
+				maskConfig.forbidTripleSame = false;
+			}
+			else if (optArg.equals("", "--allow3seq")) {
+				maskConfig.forbidTripleRun = false;
+			}
+			else if (optArg.equals("", "--prob-profile")) {
+				maskConfig.probabilityProfile = optArg.arg;
+			}
+			else if (optArg.equals("", "--strict-tailmode")) {
+				maskConfig.strictTailModes = true;
+			}
+			else if (optArg.equals("", "--hide-prob")) {
+				maskConfig.showProbabilities = false;
 			}
 			else if (optArg.equals("-v", "--version")) {
 				printf("Rotor-Cuda v" RELEASE "\n");
@@ -381,7 +427,15 @@ int main(int argc, char** argv)
 
 
 	// Parse operands
+	bool maskMode = maskPrefixSpecified || maskSuffixSetsSpecified;
+	if (maskMode && !(maskPrefixSpecified && maskSuffixSetsSpecified)) {
+		printf("  Error: %s\n", " Both --prefix and --suffixsets are required for masked suffix search");
+		usage();
+		return -1;
+	}
+
 	std::vector<std::string> ops = parser.getOperands();
+	std::string targetOperand = ops.size() == 1 ? ops[0] : "";
 
 	if (ops.size() == 0) {
 		// read from file
@@ -487,13 +541,32 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
+	if (maskMode) {
+		if (searchMode != SEARCH_MODE_SA) {
+			printf("  Error: %s\n", " Masked suffix search currently supports only single address mode (-m address)");
+			return -1;
+		}
+		if (inputFile.size() != 0) {
+			printf("  Error: %s\n", " Masked suffix search does not use -i/--in; provide a single target address operand");
+			return -1;
+		}
+		if (rangeSpecified || rKey != 0 || next != 0 || zet != 0) {
+			printf("  Error: %s\n", " Masked suffix search does not combine with --range, -r, -n or -z");
+			return -1;
+		}
+		if (gpuEnable && gpuId.size() != 1) {
+			printf("  Error: %s\n", " Masked GPU V1 currently supports exactly one GPU id");
+			return -1;
+		}
+	}
+
 	//if (rangeStart.GetBitLength() <= 0) {
 		//printf("  Error: %s\n", "  Invalid start range, provide start range at least, end range would be: start range + 0xFFFFFFFFFFFFULL\n");
 		//usage();
 		//return -1;
 	//}
 
-	if (nbCPUThread > 0 && gpuEnable) {
+	if (!maskMode && nbCPUThread > 0 && gpuEnable) {
 		printf("  Error: %s\n", " Invalid arguments, CPU and GPU, both can't be used together right now\n");
 		usage();
 		return -1;
@@ -513,7 +586,9 @@ int main(int argc, char** argv)
 		printf("  COMP MODE    : %s\n", compMode == SEARCH_COMPRESSED ? "COMPRESSED" : (compMode == SEARCH_UNCOMPRESSED ? "UNCOMPRESSED" : "COMPRESSED & UNCOMPRESSED"));
 	printf("  COIN TYPE    : %s\n", coinType == COIN_BTC ? "BITCOIN" : "ETHEREUM");
 	printf("  SEARCH MODE  : %s\n", searchMode == (int)SEARCH_MODE_MA ? "Multi Address" : (searchMode == (int)SEARCH_MODE_SA ? "Single Address" : (searchMode == (int)SEARCH_MODE_MX ? "Multi X Points" : "Single X Point")));
-	printf("  DEVICE       : %s\n", (gpuEnable && nbCPUThread > 0) ? "  CPU & GPU" : ((!gpuEnable && nbCPUThread > 0) ? "CPU" : "GPU"));
+	printf("  DEVICE       : %s\n",
+		maskMode ? (gpuEnable ? "GPU V1" : "CPU") :
+		((gpuEnable && nbCPUThread > 0) ? "  CPU & GPU" : ((!gpuEnable && nbCPUThread > 0) ? "CPU" : "GPU")));
 	nbit2 += nbCPUThread;
 	if (gpuEnable) {
 		printf("  GPU IDS      : ");
@@ -573,10 +648,23 @@ int main(int argc, char** argv)
 			break;
 		}
 	}
+	if (maskMode) {
+		maskConfig.useGpu = gpuEnable;
+		maskConfig.gpuIds = gpuId;
+		maskConfig.gridSize = gridSize;
+		printf("  MASK PREFIX  : %s\n", maskPrefix.c_str());
+		printf("  MASK SETS    : %s\n", maskSuffixSets.c_str());
+		printf("  MASK RULES   : no3same=%s, no3seq=%s\n", maskConfig.forbidTripleSame ? "ON" : "OFF", maskConfig.forbidTripleRun ? "ON" : "OFF");
+		printf("  PROB PROFILE : %s%s\n", maskConfig.probabilityProfile.c_str(), maskConfig.strictTailModes ? " (strict tailmode)" : "");
+		printf("  MASK DEVICE  : %s\n", gpuEnable ? "GPU V1" : "CPU");
+	}
 	printf("  OUTPUT FILE  : %s\n", outputFile.c_str());
 	
 #ifdef WIN64
 	if (SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
+		if (maskMode) {
+			return RunMaskedSearch(targetOperand, hashORxpoint, compMode, searchMode, coinType, outputFile, maskPrefix, maskSuffixSets, nbCPUThread, display, maskConfig, should_exit);
+		}
 		Rotor* v;
 		switch (searchMode) {
 		case (int)SEARCH_MODE_MA:
@@ -605,6 +693,9 @@ int main(int argc, char** argv)
 	}
 #else
 	signal(SIGINT, CtrlHandler);
+	if (maskMode) {
+		return RunMaskedSearch(targetOperand, hashORxpoint, compMode, searchMode, coinType, outputFile, maskPrefix, maskSuffixSets, nbCPUThread, display, maskConfig, should_exit);
+	}
 	Rotor* v;
 	switch (searchMode) {
 	case (int)SEARCH_MODE_MA:
