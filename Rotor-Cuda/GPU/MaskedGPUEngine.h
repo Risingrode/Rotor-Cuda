@@ -23,8 +23,6 @@ struct MaskedGPUCharsetConfig {
     uint8_t pointPresent[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES];
     uint64_t pointX[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES][4];
     uint64_t pointY[MASKED_GPU_MAX_SUFFIX][MASKED_GPU_MAX_CHOICES][4];
-
-    MaskedGPUCharsetConfig();
 };
 
 struct MaskedGPUTask {
@@ -40,8 +38,6 @@ struct MaskedGPUTask {
     int8_t cmpState;
     uint8_t startPos;
     uint8_t reserved1[2];
-
-    MaskedGPUTask();
 };
 
 struct MaskedGPUHit {

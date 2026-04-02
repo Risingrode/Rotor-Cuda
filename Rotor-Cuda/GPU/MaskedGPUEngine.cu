@@ -38,10 +38,6 @@ __device__ __forceinline__ void Copy256(uint64_t* dst, const uint64_t* src) {
     dst[3] = src[3];
 }
 
-__device__ __forceinline__ bool IsZero256(const uint64_t* value) {
-    return value[0] == 0ULL && value[1] == 0ULL && value[2] == 0ULL && value[3] == 0ULL;
-}
-
 __device__ __forceinline__ bool IsOne256(const uint64_t* value) {
     return value[0] == 1ULL && value[1] == 0ULL && value[2] == 0ULL && value[3] == 0ULL;
 }
@@ -296,37 +292,6 @@ int ConvertSMVer2Cores(int major, int minor) {
 }
 
 } // namespace
-
-MaskedGPUCharsetConfig::MaskedGPUCharsetConfig()
-    : suffixLen(0)
-    , compMode(SEARCH_COMPRESSED)
-    , coinType(COIN_BTC)
-    , forbidTripleSame(1)
-    , forbidTripleRun(1) {
-    std::memset(target, 0, sizeof(target));
-    std::memset(reserved0, 0, sizeof(reserved0));
-    std::memset(radices, 0, sizeof(radices));
-    std::memset(bound, 0, sizeof(bound));
-    std::memset(values, 0, sizeof(values));
-    std::memset(pointPresent, 0, sizeof(pointPresent));
-    std::memset(pointX, 0, sizeof(pointX));
-    std::memset(pointY, 0, sizeof(pointY));
-}
-
-MaskedGPUTask::MaskedGPUTask()
-    : batchStart(0)
-    , batchCount(0)
-    , pointSet(0)
-    , hasNonZero(0)
-    , last1(-1)
-    , last2(-1)
-    , cmpState(0)
-    , startPos(0) {
-    std::memset(baseX, 0, sizeof(baseX));
-    std::memset(baseY, 0, sizeof(baseY));
-    std::memset(baseZ, 0, sizeof(baseZ));
-    std::memset(reserved1, 0, sizeof(reserved1));
-}
 
 MaskedGPUEngine::MaskedGPUEngine(int gpuId,
                                  int nbThreadGroup,

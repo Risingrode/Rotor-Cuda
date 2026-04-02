@@ -1235,7 +1235,7 @@ private:
 
 #ifdef WITHGPU
     MaskedGPUCharsetConfig BuildGpuCharsetConfig() const {
-        MaskedGPUCharsetConfig cfg;
+        MaskedGPUCharsetConfig cfg = {};
         cfg.suffixLen = static_cast<uint32_t>(suffixLen_);
         cfg.compMode = static_cast<uint32_t>(compMode_);
         cfg.coinType = static_cast<uint32_t>(coinType_);
@@ -1261,7 +1261,7 @@ private:
     }
 
     MaskedGPUTask BuildGpuTask(const Point& current, bool pointSet, bool hasNonZero, int cmpState, const TailState& state) const {
-        MaskedGPUTask task;
+        MaskedGPUTask task = {};
         task.pointSet = pointSet ? 1 : 0;
         task.hasNonZero = hasNonZero ? 1 : 0;
         task.last1 = static_cast<int8_t>(state.last1);
