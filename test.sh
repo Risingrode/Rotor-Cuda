@@ -43,10 +43,13 @@ export PROB_PROFILE="${PROB_PROFILE:-none}"
 
 export USE_GPU="${USE_GPU:-1}"
 export GPUI="${GPUI:-0}"
-export GPUX="${GPUX:-256,512}"
+export GPUX="${GPUX:-}"
 export CPU_THREADS="${CPU_THREADS:-4}"
 export ROTOR_MASKED_GPU_HOST_PREFIX="${ROTOR_MASKED_GPU_HOST_PREFIX:-}"
 export ROTOR_MASKED_GPU_SEGMENT_CAP="${ROTOR_MASKED_GPU_SEGMENT_CAP:-}"
+export ROTOR_MASKED_GPU_FASTPATH="${ROTOR_MASKED_GPU_FASTPATH:-auto}"
+export ROTOR_MASKED_GPU_BATCH_STEPS="${ROTOR_MASKED_GPU_BATCH_STEPS:-auto}"
+export ROTOR_MASKED_GPU_AUTOTUNE="${ROTOR_MASKED_GPU_AUTOTUNE:-1}"
 
 export OUT_FILE="${OUT_FILE:-found_mask_test.txt}"
 export LOG_FILE="${LOG_FILE:-run_mask_test.log}"
@@ -103,9 +106,12 @@ PY
 echo "[*] USE_GPU      = $USE_GPU"
 echo "[*] CASE         = $CASE"
 echo "[*] GPUI         = $GPUI"
-echo "[*] GPUX         = $GPUX"
+echo "[*] GPUX         = ${GPUX:-<auto>}"
 echo "[*] HOST_PREFIX  = ${ROTOR_MASKED_GPU_HOST_PREFIX:-<auto>}"
 echo "[*] SEGMENT_CAP  = ${ROTOR_MASKED_GPU_SEGMENT_CAP:-<auto>}"
+echo "[*] FASTPATH     = $ROTOR_MASKED_GPU_FASTPATH"
+echo "[*] BATCH_STEPS  = $ROTOR_MASKED_GPU_BATCH_STEPS"
+echo "[*] AUTOTUNE     = $ROTOR_MASKED_GPU_AUTOTUNE"
 echo "[*] PROB_PROFILE = $PROB_PROFILE"
 echo "[*] OUT_FILE     = $OUT_FILE"
 echo "[*] LOG_FILE     = $LOG_FILE"
@@ -123,7 +129,10 @@ cmd=(
 )
 
 if [[ "$USE_GPU" == "1" ]]; then
-  cmd+=(-g --gpui "$GPUI" --gpux "$GPUX")
+  cmd+=(-g --gpui "$GPUI")
+  if [[ -n "$GPUX" ]]; then
+    cmd+=(--gpux "$GPUX")
+  fi
 else
   cmd+=(-t "$CPU_THREADS")
 fi

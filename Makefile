@@ -75,7 +75,7 @@ $(OBJDIR)/GPU/GPUEngine.o: $(SRCDIR)/GPU/GPUEngine.cu
 	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c $(SRCDIR)/GPU/GPUEngine.cu
 
 $(OBJDIR)/GPU/MaskedGPUEngine.o: $(SRCDIR)/GPU/MaskedGPUEngine.cu
-	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c $(SRCDIR)/GPU/MaskedGPUEngine.cu
+	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O3 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c $(SRCDIR)/GPU/MaskedGPUEngine.cu
 endif
 endif
 

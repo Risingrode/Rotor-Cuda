@@ -14,9 +14,15 @@
 #define MASKED_GPU_MAX_SUFFIX 23
 #define MASKED_GPU_MAX_CHOICES 16
 #define MASKED_GPU_RULE_DIM 17
+#define MASKED_GPU_RULE_STATE_COUNT (MASKED_GPU_RULE_DIM * MASKED_GPU_RULE_DIM)
+#define MASKED_GPU_CMP_STATE_COUNT 3
 #define MASKED_GPU_MAX_SEGMENTS MASKED_GPU_MAX_SUFFIX
-#define MASKED_GPU_SEGMENT_COMBO_CAP 64
+#define MASKED_GPU_SEGMENT_COMBO_CAP_V1 64
+#define MASKED_GPU_SEGMENT_COMBO_CAP_V2_FASTPATH 243
+#define MASKED_GPU_SEGMENT_COMBO_CAP MASKED_GPU_SEGMENT_COMBO_CAP_V2_FASTPATH
 #define MASKED_GPU_MAX_SEGMENT_LEN MASKED_GPU_MAX_SUFFIX
+#define MASKED_GPU_MODE_V1 1
+#define MASKED_GPU_MODE_V2_FASTPATH 2
 
 enum MaskedGPUPosFlags {
     MASKED_GPU_POS_HAS_ZERO      = 1 << 0,
@@ -33,11 +39,12 @@ struct MaskedGPUCharsetConfig {
     uint32_t target[5];
     uint8_t forbidTripleSame;
     uint8_t forbidTripleRun;
-    uint8_t reserved0[2];
+    uint8_t gpuMode;
+    uint8_t requestedBatchSteps;
     uint8_t gpuStartPos;
     uint8_t segmentCount;
     uint8_t segmentComboCap;
-    uint8_t reserved1;
+    uint8_t autotune;
     uint8_t radices[MASKED_GPU_MAX_SUFFIX];
     uint8_t radixShift[MASKED_GPU_MAX_SUFFIX];
     uint8_t bound[MASKED_GPU_MAX_SUFFIX];
@@ -55,6 +62,11 @@ struct MaskedGPUCharsetConfig {
     uint8_t segmentValues[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][MASKED_GPU_MAX_SEGMENT_LEN];
     uint64_t segmentPointX[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][4];
     uint64_t segmentPointY[MASKED_GPU_MAX_SEGMENTS][MASKED_GPU_SEGMENT_COMBO_CAP][4];
+};
+
+struct MaskedGPUFastPathTables {
+    std::vector<uint16_t> ruleTransition;
+    std::vector<int8_t> boundTransition;
 };
 
 struct MaskedGPUTask {
@@ -84,40 +96,72 @@ public:
                     int nbThreadGroup,
                     int nbThreadPerGroup,
                     uint32_t maxFound,
-                    const MaskedGPUCharsetConfig& config);
+                    const MaskedGPUCharsetConfig& config,
+                    const MaskedGPUFastPathTables& fastTables);
     ~MaskedGPUEngine();
 
     bool IsInitialised() const;
     int GetNbThread() const;
     int GetGroupSize() const;
     const std::string& GetDeviceName() const;
+    bool IsFastPathV2() const;
+    uint32_t GetBatchSteps() const;
+    uint64_t GetLaunchCandidateCount() const;
+    bool AutoTune(const MaskedGPUTask& sampleTask, uint64_t availableCount, bool userSpecifiedGrid);
 
     bool SearchBatch(const MaskedGPUTask& task, std::vector<MaskedGPUHit>& hits);
+    bool SubmitBatch(const MaskedGPUTask& task);
+    bool CollectBatch(std::vector<MaskedGPUHit>& hits, uint64_t& batchStart, uint64_t& batchCount, bool wait);
+    bool HasPendingBatches() const;
 
 private:
+    enum { kMaxSlots = 2 };
+
     int gpuId_;
     int nbThreadGroup_;
     int nbThreadPerGroup_;
     int nbThread_;
+    int smCount_;
     uint32_t maxFound_;
+    uint32_t batchSteps_;
+    uint64_t launchCandidateCount_;
     bool initialised_;
+    bool fastPathV2_;
+    bool autotuneEnabled_;
+    uint8_t requestedBatchSteps_;
     std::string deviceName_;
+    std::string deviceBaseName_;
 
-    uint32_t* outputCount_;
-    uint32_t* outputCountPinned_;
-    MaskedGPUHit* outputHits_;
-    MaskedGPUHit* outputHitsPinned_;
+    uint32_t* outputCount_[kMaxSlots];
+    uint32_t* outputCountPinned_[kMaxSlots];
+    MaskedGPUHit* outputHits_[kMaxSlots];
+    MaskedGPUHit* outputHitsPinned_[kMaxSlots];
+    bool slotActive_[kMaxSlots];
+    uint64_t slotBatchStart_[kMaxSlots];
+    uint64_t slotBatchCount_[kMaxSlots];
+    int slotCount_;
+    int launchCursor_;
+    int collectCursor_;
+    int pendingCount_;
     uint8_t* segmentPointSet_;
     uint8_t* segmentValues_;
     uint64_t* segmentPointX_;
     uint64_t* segmentPointY_;
+    uint16_t* fastRuleTransition_;
+    int8_t* fastBoundTransition_;
     uint32_t compMode_;
     uint32_t coinType_;
 
 #ifdef ROTOR_MASKED_CUDA_TYPES_AVAILABLE
-    cudaStream_t stream_;
-    cudaEvent_t kernelDone_;
+    cudaStream_t streams_[kMaxSlots];
+    cudaEvent_t kernelDone_[kMaxSlots];
 #endif
+
+    void UpdateDeviceName(int major, int minor);
+    void ApplyLaunchConfig(int nbThreadGroup, int nbThreadPerGroup, uint32_t batchSteps, int major, int minor);
+    bool LaunchOnSlot(int slot, const MaskedGPUTask& task);
+    bool CollectFromSlot(int slot, std::vector<MaskedGPUHit>& hits, uint64_t& batchStart, uint64_t& batchCount, bool wait);
+    double BenchmarkConfig(const MaskedGPUTask& sampleTask, uint64_t availableCount, int nbThreadGroup, int nbThreadPerGroup, uint32_t batchSteps);
 };
 
 #endif

@@ -4,8 +4,12 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
+#include <vector>
 
 #include "GPUMath.h"
 #include "GPUHash.h"
@@ -20,6 +24,10 @@ inline void __cudaSafeCall(cudaError err, const char* file, const int line) {
 }
 
 namespace {
+
+static const uint16_t kInvalidRuleState = 0xFFFFU;
+static const int8_t kInvalidCmpState = 2;
+static const uint32_t kDefaultFastBatchSteps = 16U;
 
 struct DevicePoint {
     uint64_t x[4];
@@ -51,7 +59,46 @@ struct MaskedGPUHotConfig {
 };
 
 __device__ __constant__ MaskedGPUHotConfig c_maskedHotCfg;
-__device__ __constant__ MaskedGPUTask c_maskedTask;
+
+uint32_t NormalizeBatchSteps(uint32_t requested) {
+    if (requested == 8U || requested == 16U || requested == 32U) {
+        return requested;
+    }
+    if (requested == 0U) {
+        return kDefaultFastBatchSteps;
+    }
+    if (requested < 8U) {
+        return 8U;
+    }
+    if (requested < 16U) {
+        return 16U;
+    }
+    return 32U;
+}
+
+int PackRuleStateHost(int last2, int last1) {
+    return ((last2 + 1) * MASKED_GPU_RULE_DIM) + (last1 + 1);
+}
+
+int RuleTransitionIndexHost(int segment, int combo, int state) {
+    return ((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * MASKED_GPU_RULE_STATE_COUNT + state;
+}
+
+int BoundTransitionIndexHost(int segment, int combo, int cmpState) {
+    return ((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * MASKED_GPU_CMP_STATE_COUNT + (cmpState + 1);
+}
+
+__device__ __forceinline__ uint32_t PackRuleStateDevice(int last2, int last1) {
+    return (uint32_t)(((last2 + 1) * MASKED_GPU_RULE_DIM) + (last1 + 1));
+}
+
+__device__ __forceinline__ int RuleTransitionIndexDevice(int segment, int combo, uint32_t state) {
+    return (((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * MASKED_GPU_RULE_STATE_COUNT) + (int)state;
+}
+
+__device__ __forceinline__ int BoundTransitionIndexDevice(int segment, int combo, int cmpState) {
+    return (((segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo) * MASKED_GPU_CMP_STATE_COUNT) + (cmpState + 1);
+}
 
 __device__ __forceinline__ void Copy256(uint64_t* dst, const uint64_t* src) {
     dst[0] = src[0];
@@ -233,6 +280,35 @@ __device__ __forceinline__ void AddSegmentPoint(DevicePoint* point,
     AddAffine(point, px, py);
 }
 
+__device__ __forceinline__ void DecodeSegmentCombos(uint64_t candidateIndex, uint8_t* segmentCombos) {
+    uint64_t decode = candidateIndex;
+    for (int segment = (int)c_maskedHotCfg.segmentCount - 1; segment >= 0; --segment) {
+        const uint8_t shift = c_maskedHotCfg.segmentRadixShift[segment];
+        if (shift != 0xFFU) {
+            if (shift == 0U) {
+                segmentCombos[segment] = 0U;
+            }
+            else {
+                const uint64_t mask = (1ULL << shift) - 1ULL;
+                segmentCombos[segment] = (uint8_t)(decode & mask);
+                decode >>= shift;
+            }
+        }
+        else {
+            const uint8_t radix = c_maskedHotCfg.segmentRadix[segment];
+            segmentCombos[segment] = (uint8_t)(decode % (uint64_t)radix);
+            decode /= (uint64_t)radix;
+        }
+    }
+}
+
+__device__ __forceinline__ void InitDevicePoint(DevicePoint* point, const MaskedGPUTask& task) {
+    point->set = task.pointSet;
+    Copy256(point->x, task.baseX);
+    Copy256(point->y, task.baseY);
+    Copy256(point->z, task.baseZ);
+}
+
 template<int CoinType, int CompMode>
 __device__ __noinline__ bool MatchCandidate(DevicePoint* point, uint32_t* matchMode) {
     uint32_t h[5];
@@ -279,57 +355,34 @@ __device__ __noinline__ bool MatchCandidate(DevicePoint* point, uint32_t* matchM
     return false;
 }
 
+__device__ __forceinline__ bool MatchCandidateBTCUncompressed(DevicePoint* point) {
+    uint32_t h[5];
+    _GetHash160(point->x, point->y, (uint8_t*)h);
+    return MatchHash160(h);
+}
+
 template<int CoinType, int CompMode>
-__global__ void masked_search_kernel(uint32_t* foundCount,
-                                     MaskedGPUHit* foundHits,
-                                     uint32_t maxFound,
-                                     const uint8_t* segmentPointSetTable,
-                                     const uint8_t* segmentValueTable,
-                                     const uint64_t* segmentPointXTable,
-                                     const uint64_t* segmentPointYTable) {
-    const uint64_t globalIdx = c_maskedTask.batchStart +
-        (uint64_t)(blockIdx.x * blockDim.x + threadIdx.x);
-
-    if (globalIdx >= c_maskedTask.batchStart + c_maskedTask.batchCount) {
-        return;
-    }
-
-    if (c_maskedTask.hasNonZero == 0U &&
-        c_maskedHotCfg.nonZeroPossibleFromPos[c_maskedTask.startPos] == 0U) {
-        return;
-    }
+__device__ __forceinline__ void ProcessGenericCandidate(const MaskedGPUTask& task,
+                                                        uint64_t localIndex,
+                                                        uint32_t* foundCount,
+                                                        MaskedGPUHit* foundHits,
+                                                        uint32_t maxFound,
+                                                        const uint8_t* segmentPointSetTable,
+                                                        const uint8_t* segmentValueTable,
+                                                        const uint64_t* segmentPointXTable,
+                                                        const uint64_t* segmentPointYTable) {
+    const uint64_t candidateIndex = task.batchStart + localIndex;
 
     uint8_t segmentCombos[MASKED_GPU_MAX_SEGMENTS];
-    uint64_t decode = globalIdx;
-    for (int segment = (int)c_maskedHotCfg.segmentCount - 1; segment >= 0; --segment) {
-        const uint8_t shift = c_maskedHotCfg.segmentRadixShift[segment];
-        if (shift != 0xFFU) {
-            if (shift == 0U) {
-                segmentCombos[segment] = 0U;
-            }
-            else {
-                const uint64_t mask = (1ULL << shift) - 1ULL;
-                segmentCombos[segment] = (uint8_t)(decode & mask);
-                decode >>= shift;
-            }
-        }
-        else {
-            const uint8_t radix = c_maskedHotCfg.segmentRadix[segment];
-            segmentCombos[segment] = (uint8_t)(decode % (uint64_t)radix);
-            decode /= (uint64_t)radix;
-        }
-    }
+    DecodeSegmentCombos(candidateIndex, segmentCombos);
 
     DevicePoint point;
-    point.set = c_maskedTask.pointSet;
-    Copy256(point.x, c_maskedTask.baseX);
-    Copy256(point.y, c_maskedTask.baseY);
-    Copy256(point.z, c_maskedTask.baseZ);
+    InitDevicePoint(&point, task);
 
-    int last1 = (int)c_maskedTask.last1;
-    int last2 = (int)c_maskedTask.last2;
-    int cmpState = (int)c_maskedTask.cmpState;
-    bool hasNonZero = c_maskedTask.hasNonZero != 0U;
+    int last1 = (int)task.last1;
+    int last2 = (int)task.last2;
+    int cmpState = (int)task.cmpState;
+    bool hasNonZero = task.hasNonZero != 0U;
 
     for (int segment = 0; segment < (int)c_maskedHotCfg.segmentCount; ++segment) {
         const uint8_t combo = segmentCombos[segment];
@@ -386,9 +439,103 @@ __global__ void masked_search_kernel(uint32_t* foundCount,
 
     uint32_t pos = atomicAdd(foundCount, 1U);
     if (pos < maxFound) {
-        foundHits[pos].localIndex = globalIdx - c_maskedTask.batchStart;
+        foundHits[pos].localIndex = localIndex;
         foundHits[pos].mode = matchMode;
         foundHits[pos].reserved = 0U;
+    }
+}
+
+template<int CoinType, int CompMode>
+__global__ void masked_search_kernel(const MaskedGPUTask task,
+                                     uint32_t* foundCount,
+                                     MaskedGPUHit* foundHits,
+                                     uint32_t maxFound,
+                                     const uint8_t* segmentPointSetTable,
+                                     const uint8_t* segmentValueTable,
+                                     const uint64_t* segmentPointXTable,
+                                     const uint64_t* segmentPointYTable) {
+    if (task.hasNonZero == 0U &&
+        c_maskedHotCfg.nonZeroPossibleFromPos[task.startPos] == 0U) {
+        return;
+    }
+
+    const uint64_t stride = (uint64_t)(gridDim.x * blockDim.x);
+    for (uint64_t localIndex = (uint64_t)(blockIdx.x * blockDim.x + threadIdx.x);
+         localIndex < task.batchCount;
+         localIndex += stride) {
+        ProcessGenericCandidate<CoinType, CompMode>(task, localIndex, foundCount, foundHits, maxFound,
+                                                    segmentPointSetTable, segmentValueTable,
+                                                    segmentPointXTable, segmentPointYTable);
+    }
+}
+
+__global__ void masked_search_kernel_v2_btc_uncompressed(const MaskedGPUTask task,
+                                                         uint32_t* foundCount,
+                                                         MaskedGPUHit* foundHits,
+                                                         uint32_t maxFound,
+                                                         const uint8_t* segmentPointSetTable,
+                                                         const uint64_t* segmentPointXTable,
+                                                         const uint64_t* segmentPointYTable,
+                                                         const uint16_t* ruleTransition,
+                                                         const int8_t* boundTransition) {
+    if (task.hasNonZero == 0U &&
+        c_maskedHotCfg.nonZeroPossibleFromPos[task.startPos] == 0U) {
+        return;
+    }
+
+    const uint64_t stride = (uint64_t)(gridDim.x * blockDim.x);
+    for (uint64_t localIndex = (uint64_t)(blockIdx.x * blockDim.x + threadIdx.x);
+         localIndex < task.batchCount;
+         localIndex += stride) {
+        const uint64_t candidateIndex = task.batchStart + localIndex;
+        uint8_t segmentCombos[MASKED_GPU_MAX_SEGMENTS];
+        DecodeSegmentCombos(candidateIndex, segmentCombos);
+
+        DevicePoint point;
+        InitDevicePoint(&point, task);
+
+        uint32_t ruleState = PackRuleStateDevice((int)task.last2, (int)task.last1);
+        int cmpState = (int)task.cmpState;
+        bool hasNonZero = task.hasNonZero != 0U;
+        bool valid = true;
+
+        for (int segment = 0; segment < (int)c_maskedHotCfg.segmentCount; ++segment) {
+            const int combo = (int)segmentCombos[segment];
+            const uint16_t nextRuleState = ruleTransition[RuleTransitionIndexDevice(segment, combo, ruleState)];
+            if (nextRuleState == kInvalidRuleState) {
+                valid = false;
+                break;
+            }
+            ruleState = (uint32_t)nextRuleState;
+
+            const int8_t nextCmpState = boundTransition[BoundTransitionIndexDevice(segment, combo, cmpState)];
+            if (nextCmpState == kInvalidCmpState) {
+                valid = false;
+                break;
+            }
+            cmpState = (int)nextCmpState;
+
+            if (segmentPointSetTable[(segment * MASKED_GPU_SEGMENT_COMBO_CAP) + combo] != 0U) {
+                AddSegmentPoint(&point, segmentPointXTable, segmentPointYTable, segment, combo);
+                hasNonZero = true;
+            }
+        }
+
+        if (!valid || !hasNonZero || !point.set) {
+            continue;
+        }
+
+        ReducePoint(&point);
+        if (!MatchCandidateBTCUncompressed(&point)) {
+            continue;
+        }
+
+        const uint32_t pos = atomicAdd(foundCount, 1U);
+        if (pos < maxFound) {
+            foundHits[pos].localIndex = localIndex;
+            foundHits[pos].mode = 0U;
+            foundHits[pos].reserved = 0U;
+        }
     }
 }
 
@@ -420,26 +567,48 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
                                  int nbThreadGroup,
                                  int nbThreadPerGroup,
                                  uint32_t maxFound,
-                                 const MaskedGPUCharsetConfig& config)
+                                 const MaskedGPUCharsetConfig& config,
+                                 const MaskedGPUFastPathTables& fastTables)
     : gpuId_(gpuId)
     , nbThreadGroup_(nbThreadGroup)
-    , nbThreadPerGroup_(nbThreadPerGroup > 0 ? nbThreadPerGroup : 128)
+    , nbThreadPerGroup_(nbThreadPerGroup)
     , nbThread_(0)
+    , smCount_(0)
     , maxFound_(maxFound)
+    , batchSteps_(1)
+    , launchCandidateCount_(0)
     , initialised_(false)
+    , fastPathV2_(config.gpuMode == MASKED_GPU_MODE_V2_FASTPATH)
+    , autotuneEnabled_(config.autotune != 0)
+    , requestedBatchSteps_(config.requestedBatchSteps)
     , deviceName_()
-    , outputCount_(NULL)
-    , outputCountPinned_(NULL)
-    , outputHits_(NULL)
-    , outputHitsPinned_(NULL)
+    , deviceBaseName_()
+    , slotCount_(1)
+    , launchCursor_(0)
+    , collectCursor_(0)
+    , pendingCount_(0)
     , segmentPointSet_(NULL)
     , segmentValues_(NULL)
     , segmentPointX_(NULL)
     , segmentPointY_(NULL)
+    , fastRuleTransition_(NULL)
+    , fastBoundTransition_(NULL)
     , compMode_(config.compMode)
-    , coinType_(config.coinType)
-    , stream_(NULL)
-    , kernelDone_(NULL) {
+    , coinType_(config.coinType) {
+
+    for (int i = 0; i < kMaxSlots; i++) {
+        outputCount_[i] = NULL;
+        outputCountPinned_[i] = NULL;
+        outputHits_[i] = NULL;
+        outputHitsPinned_[i] = NULL;
+        slotActive_[i] = false;
+        slotBatchStart_[i] = 0ULL;
+        slotBatchCount_[i] = 0ULL;
+#ifdef ROTOR_MASKED_CUDA_TYPES_AVAILABLE
+        streams_[i] = NULL;
+        kernelDone_[i] = NULL;
+#endif
+    }
 
     int deviceCount = 0;
     CudaSafeCall(cudaGetDeviceCount(&deviceCount));
@@ -452,27 +621,29 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
 
     cudaDeviceProp deviceProp;
     CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId_));
+    smCount_ = deviceProp.multiProcessorCount;
+    deviceBaseName_ = std::string(deviceProp.name);
 
     if (nbThreadGroup_ <= 0) {
-        nbThreadGroup_ = deviceProp.multiProcessorCount * 8;
+        nbThreadGroup_ = smCount_ * (fastPathV2_ ? 12 : 8);
     }
-    nbThread_ = nbThreadGroup_ * nbThreadPerGroup_;
+    if (nbThreadPerGroup_ <= 0) {
+        nbThreadPerGroup_ = fastPathV2_ ? 256 : 128;
+    }
 
-    char tmp[512];
-    sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d)",
-        gpuId_, deviceProp.name, deviceProp.multiProcessorCount,
-        ConvertSMVer2Cores(deviceProp.major, deviceProp.minor),
-        nbThreadGroup_, nbThreadPerGroup_);
-    deviceName_ = std::string(tmp);
+    slotCount_ = fastPathV2_ ? 2 : 1;
+    ApplyLaunchConfig(nbThreadGroup_, nbThreadPerGroup_, fastPathV2_ ? NormalizeBatchSteps((uint32_t)requestedBatchSteps_) : 1U,
+                      deviceProp.major, deviceProp.minor);
 
     CudaSafeCall(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
-    CudaSafeCall(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
-    CudaSafeCall(cudaEventCreateWithFlags(&kernelDone_, cudaEventDisableTiming));
-
-    CudaSafeCall(cudaMalloc((void**)&outputCount_, sizeof(uint32_t)));
-    CudaSafeCall(cudaHostAlloc(&outputCountPinned_, sizeof(uint32_t), cudaHostAllocDefault));
-    CudaSafeCall(cudaMalloc((void**)&outputHits_, sizeof(MaskedGPUHit) * maxFound_));
-    CudaSafeCall(cudaHostAlloc(&outputHitsPinned_, sizeof(MaskedGPUHit) * maxFound_, cudaHostAllocDefault));
+    for (int i = 0; i < slotCount_; i++) {
+        CudaSafeCall(cudaStreamCreateWithFlags(&streams_[i], cudaStreamNonBlocking));
+        CudaSafeCall(cudaEventCreateWithFlags(&kernelDone_[i], cudaEventDisableTiming));
+        CudaSafeCall(cudaMalloc((void**)&outputCount_[i], sizeof(uint32_t)));
+        CudaSafeCall(cudaHostAlloc(&outputCountPinned_[i], sizeof(uint32_t), cudaHostAllocDefault));
+        CudaSafeCall(cudaMalloc((void**)&outputHits_[i], sizeof(MaskedGPUHit) * maxFound_));
+        CudaSafeCall(cudaHostAlloc(&outputHitsPinned_[i], sizeof(MaskedGPUHit) * maxFound_, cudaHostAllocDefault));
+    }
 
     const size_t segmentPointSetBytes = sizeof(config.segmentPointSet);
     const size_t segmentValueBytes = sizeof(config.segmentValues);
@@ -481,10 +652,22 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
     CudaSafeCall(cudaMalloc((void**)&segmentValues_, segmentValueBytes));
     CudaSafeCall(cudaMalloc((void**)&segmentPointX_, segmentPointBytes));
     CudaSafeCall(cudaMalloc((void**)&segmentPointY_, segmentPointBytes));
-    CudaSafeCall(cudaMemcpyAsync(segmentPointSet_, &config.segmentPointSet[0][0], segmentPointSetBytes, cudaMemcpyHostToDevice, stream_));
-    CudaSafeCall(cudaMemcpyAsync(segmentValues_, &config.segmentValues[0][0][0], segmentValueBytes, cudaMemcpyHostToDevice, stream_));
-    CudaSafeCall(cudaMemcpyAsync(segmentPointX_, &config.segmentPointX[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, stream_));
-    CudaSafeCall(cudaMemcpyAsync(segmentPointY_, &config.segmentPointY[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, stream_));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointSet_, &config.segmentPointSet[0][0], segmentPointSetBytes, cudaMemcpyHostToDevice, streams_[0]));
+    CudaSafeCall(cudaMemcpyAsync(segmentValues_, &config.segmentValues[0][0][0], segmentValueBytes, cudaMemcpyHostToDevice, streams_[0]));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointX_, &config.segmentPointX[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, streams_[0]));
+    CudaSafeCall(cudaMemcpyAsync(segmentPointY_, &config.segmentPointY[0][0][0], segmentPointBytes, cudaMemcpyHostToDevice, streams_[0]));
+
+    if (fastPathV2_) {
+        const size_t expectedRuleCount = (size_t)MASKED_GPU_MAX_SEGMENTS * (size_t)MASKED_GPU_SEGMENT_COMBO_CAP * (size_t)MASKED_GPU_RULE_STATE_COUNT;
+        const size_t expectedBoundCount = (size_t)MASKED_GPU_MAX_SEGMENTS * (size_t)MASKED_GPU_SEGMENT_COMBO_CAP * (size_t)MASKED_GPU_CMP_STATE_COUNT;
+        if (fastTables.ruleTransition.size() != expectedRuleCount || fastTables.boundTransition.size() != expectedBoundCount) {
+            throw std::runtime_error("MaskedGPUEngine fastpath tables are incomplete");
+        }
+        CudaSafeCall(cudaMalloc((void**)&fastRuleTransition_, sizeof(uint16_t) * expectedRuleCount));
+        CudaSafeCall(cudaMalloc((void**)&fastBoundTransition_, sizeof(int8_t) * expectedBoundCount));
+        CudaSafeCall(cudaMemcpyAsync(fastRuleTransition_, &fastTables.ruleTransition[0], sizeof(uint16_t) * expectedRuleCount, cudaMemcpyHostToDevice, streams_[0]));
+        CudaSafeCall(cudaMemcpyAsync(fastBoundTransition_, &fastTables.boundTransition[0], sizeof(int8_t) * expectedBoundCount, cudaMemcpyHostToDevice, streams_[0]));
+    }
 
     MaskedGPUHotConfig hot = {};
     hot.suffixLen = config.suffixLen;
@@ -507,17 +690,37 @@ MaskedGPUEngine::MaskedGPUEngine(int gpuId,
     std::memcpy(hot.segmentRadixShift, config.segmentRadixShift, sizeof(hot.segmentRadixShift));
 
     CudaSafeCall(cudaMemcpyToSymbol(c_maskedHotCfg, &hot, sizeof(MaskedGPUHotConfig)));
-    CudaSafeCall(cudaStreamSynchronize(stream_));
+    CudaSafeCall(cudaStreamSynchronize(streams_[0]));
     CudaSafeCall(cudaGetLastError());
     initialised_ = true;
 }
 
 MaskedGPUEngine::~MaskedGPUEngine() {
-    if (kernelDone_ != NULL) {
-        CudaSafeCall(cudaEventDestroy(kernelDone_));
+    for (int i = 0; i < kMaxSlots; i++) {
+        if (kernelDone_[i] != NULL) {
+            CudaSafeCall(cudaEventDestroy(kernelDone_[i]));
+        }
+        if (streams_[i] != NULL) {
+            CudaSafeCall(cudaStreamDestroy(streams_[i]));
+        }
+        if (outputHitsPinned_[i] != NULL) {
+            CudaSafeCall(cudaFreeHost(outputHitsPinned_[i]));
+        }
+        if (outputHits_[i] != NULL) {
+            CudaSafeCall(cudaFree(outputHits_[i]));
+        }
+        if (outputCountPinned_[i] != NULL) {
+            CudaSafeCall(cudaFreeHost(outputCountPinned_[i]));
+        }
+        if (outputCount_[i] != NULL) {
+            CudaSafeCall(cudaFree(outputCount_[i]));
+        }
     }
-    if (stream_ != NULL) {
-        CudaSafeCall(cudaStreamDestroy(stream_));
+    if (fastBoundTransition_ != NULL) {
+        CudaSafeCall(cudaFree(fastBoundTransition_));
+    }
+    if (fastRuleTransition_ != NULL) {
+        CudaSafeCall(cudaFree(fastRuleTransition_));
     }
     if (segmentPointY_ != NULL) {
         CudaSafeCall(cudaFree(segmentPointY_));
@@ -531,18 +734,30 @@ MaskedGPUEngine::~MaskedGPUEngine() {
     if (segmentPointSet_ != NULL) {
         CudaSafeCall(cudaFree(segmentPointSet_));
     }
-    if (outputHitsPinned_ != NULL) {
-        CudaSafeCall(cudaFreeHost(outputHitsPinned_));
+}
+
+void MaskedGPUEngine::UpdateDeviceName(int major, int minor) {
+    char tmp[512];
+    if (fastPathV2_) {
+        sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d) Batch x%u [V2 fastpath]",
+            gpuId_, deviceBaseName_.c_str(), smCount_, ConvertSMVer2Cores(major, minor),
+            nbThreadGroup_, nbThreadPerGroup_, batchSteps_);
     }
-    if (outputHits_ != NULL) {
-        CudaSafeCall(cudaFree(outputHits_));
+    else {
+        sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d)",
+            gpuId_, deviceBaseName_.c_str(), smCount_, ConvertSMVer2Cores(major, minor),
+            nbThreadGroup_, nbThreadPerGroup_);
     }
-    if (outputCountPinned_ != NULL) {
-        CudaSafeCall(cudaFreeHost(outputCountPinned_));
-    }
-    if (outputCount_ != NULL) {
-        CudaSafeCall(cudaFree(outputCount_));
-    }
+    deviceName_ = std::string(tmp);
+}
+
+void MaskedGPUEngine::ApplyLaunchConfig(int nbThreadGroup, int nbThreadPerGroup, uint32_t batchSteps, int major, int minor) {
+    nbThreadGroup_ = std::max(1, nbThreadGroup);
+    nbThreadPerGroup_ = std::max(32, nbThreadPerGroup);
+    batchSteps_ = fastPathV2_ ? NormalizeBatchSteps(batchSteps) : 1U;
+    nbThread_ = nbThreadGroup_ * nbThreadPerGroup_;
+    launchCandidateCount_ = fastPathV2_ ? ((uint64_t)nbThread_ * (uint64_t)batchSteps_) : (uint64_t)nbThread_;
+    UpdateDeviceName(major, minor);
 }
 
 bool MaskedGPUEngine::IsInitialised() const {
@@ -561,26 +776,51 @@ const std::string& MaskedGPUEngine::GetDeviceName() const {
     return deviceName_;
 }
 
-bool MaskedGPUEngine::SearchBatch(const MaskedGPUTask& task, std::vector<MaskedGPUHit>& hits) {
-    hits.clear();
+bool MaskedGPUEngine::IsFastPathV2() const {
+    return fastPathV2_;
+}
+
+uint32_t MaskedGPUEngine::GetBatchSteps() const {
+    return batchSteps_;
+}
+
+uint64_t MaskedGPUEngine::GetLaunchCandidateCount() const {
+    return launchCandidateCount_;
+}
+
+bool MaskedGPUEngine::LaunchOnSlot(int slot, const MaskedGPUTask& task) {
     if (!initialised_) {
         return false;
     }
 
-    CudaSafeCall(cudaMemcpyToSymbolAsync(c_maskedTask, &task, sizeof(MaskedGPUTask), 0, cudaMemcpyHostToDevice, stream_));
-    CudaSafeCall(cudaMemsetAsync(outputCount_, 0, sizeof(uint32_t), stream_));
+    cudaStream_t stream = streams_[slot];
+    CudaSafeCall(cudaMemsetAsync(outputCount_[slot], 0, sizeof(uint32_t), stream));
 
-    if (coinType_ == COIN_ETH) {
-        masked_search_kernel<COIN_ETH, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
+    if (fastPathV2_) {
+        masked_search_kernel_v2_btc_uncompressed<<<nbThreadGroup_, nbThreadPerGroup_, 0, stream>>>(
+            task, outputCount_[slot], outputHits_[slot], maxFound_,
+            segmentPointSet_, segmentPointX_, segmentPointY_,
+            fastRuleTransition_, fastBoundTransition_);
+    }
+    else if (coinType_ == COIN_ETH) {
+        masked_search_kernel<COIN_ETH, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream>>>(
+            task, outputCount_[slot], outputHits_[slot], maxFound_,
+            segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else if (compMode_ == SEARCH_COMPRESSED) {
-        masked_search_kernel<COIN_BTC, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_COMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream>>>(
+            task, outputCount_[slot], outputHits_[slot], maxFound_,
+            segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else if (compMode_ == SEARCH_UNCOMPRESSED) {
-        masked_search_kernel<COIN_BTC, SEARCH_UNCOMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_UNCOMPRESSED><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream>>>(
+            task, outputCount_[slot], outputHits_[slot], maxFound_,
+            segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
     else {
-        masked_search_kernel<COIN_BTC, SEARCH_BOTH><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream_>>>(outputCount_, outputHits_, maxFound_, segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
+        masked_search_kernel<COIN_BTC, SEARCH_BOTH><<<nbThreadGroup_, nbThreadPerGroup_, 0, stream>>>(
+            task, outputCount_[slot], outputHits_[slot], maxFound_,
+            segmentPointSet_, segmentValues_, segmentPointX_, segmentPointY_);
     }
 
     cudaError_t err = cudaGetLastError();
@@ -589,19 +829,211 @@ bool MaskedGPUEngine::SearchBatch(const MaskedGPUTask& task, std::vector<MaskedG
         return false;
     }
 
-    CudaSafeCall(cudaEventRecord(kernelDone_, stream_));
-    CudaSafeCall(cudaEventSynchronize(kernelDone_));
+    CudaSafeCall(cudaEventRecord(kernelDone_[slot], stream));
+    slotBatchStart_[slot] = task.batchStart;
+    slotBatchCount_[slot] = task.batchCount;
+    return true;
+}
 
-    CudaSafeCall(cudaMemcpyAsync(outputCountPinned_, outputCount_, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream_));
-    CudaSafeCall(cudaStreamSynchronize(stream_));
-    uint32_t count = *outputCountPinned_;
+bool MaskedGPUEngine::CollectFromSlot(int slot, std::vector<MaskedGPUHit>& hits, uint64_t& batchStart, uint64_t& batchCount, bool wait) {
+    hits.clear();
+    if (!slotActive_[slot]) {
+        return false;
+    }
+
+    if (wait) {
+        CudaSafeCall(cudaEventSynchronize(kernelDone_[slot]));
+    }
+    else {
+        cudaError_t status = cudaEventQuery(kernelDone_[slot]);
+        if (status == cudaErrorNotReady) {
+            return false;
+        }
+        if (status != cudaSuccess) {
+            CudaSafeCall(status);
+        }
+    }
+
+    cudaStream_t stream = streams_[slot];
+    CudaSafeCall(cudaMemcpyAsync(outputCountPinned_[slot], outputCount_[slot], sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
+    CudaSafeCall(cudaStreamSynchronize(stream));
+    uint32_t count = *outputCountPinned_[slot];
     if (count > maxFound_) {
         count = maxFound_;
     }
     if (count > 0) {
-        CudaSafeCall(cudaMemcpyAsync(outputHitsPinned_, outputHits_, sizeof(MaskedGPUHit) * count, cudaMemcpyDeviceToHost, stream_));
-        CudaSafeCall(cudaStreamSynchronize(stream_));
-        hits.assign(outputHitsPinned_, outputHitsPinned_ + count);
+        CudaSafeCall(cudaMemcpyAsync(outputHitsPinned_[slot], outputHits_[slot], sizeof(MaskedGPUHit) * count, cudaMemcpyDeviceToHost, stream));
+        CudaSafeCall(cudaStreamSynchronize(stream));
+        hits.assign(outputHitsPinned_[slot], outputHitsPinned_[slot] + count);
     }
+
+    batchStart = slotBatchStart_[slot];
+    batchCount = slotBatchCount_[slot];
+    slotActive_[slot] = false;
+    slotBatchStart_[slot] = 0ULL;
+    slotBatchCount_[slot] = 0ULL;
+    return true;
+}
+
+bool MaskedGPUEngine::SearchBatch(const MaskedGPUTask& task, std::vector<MaskedGPUHit>& hits) {
+    if (!LaunchOnSlot(0, task)) {
+        return false;
+    }
+    slotActive_[0] = true;
+    uint64_t batchStart = 0;
+    uint64_t batchCount = 0;
+    bool ok = CollectFromSlot(0, hits, batchStart, batchCount, true);
+    return ok;
+}
+
+bool MaskedGPUEngine::SubmitBatch(const MaskedGPUTask& task) {
+    if (!initialised_) {
+        return false;
+    }
+    if (pendingCount_ >= slotCount_) {
+        return false;
+    }
+
+    int slot = launchCursor_;
+    if (slotActive_[slot]) {
+        return false;
+    }
+    if (!LaunchOnSlot(slot, task)) {
+        return false;
+    }
+    slotActive_[slot] = true;
+    launchCursor_ = (launchCursor_ + 1) % slotCount_;
+    pendingCount_++;
+    return true;
+}
+
+bool MaskedGPUEngine::CollectBatch(std::vector<MaskedGPUHit>& hits, uint64_t& batchStart, uint64_t& batchCount, bool wait) {
+    if (pendingCount_ <= 0) {
+        hits.clear();
+        batchStart = 0ULL;
+        batchCount = 0ULL;
+        return false;
+    }
+
+    int slot = collectCursor_;
+    if (!CollectFromSlot(slot, hits, batchStart, batchCount, wait)) {
+        return false;
+    }
+    collectCursor_ = (collectCursor_ + 1) % slotCount_;
+    pendingCount_--;
+    return true;
+}
+
+bool MaskedGPUEngine::HasPendingBatches() const {
+    return pendingCount_ > 0;
+}
+
+double MaskedGPUEngine::BenchmarkConfig(const MaskedGPUTask& sampleTask, uint64_t availableCount, int nbThreadGroup, int nbThreadPerGroup, uint32_t batchSteps) {
+    if (!fastPathV2_ || availableCount == 0) {
+        return 0.0;
+    }
+
+    cudaDeviceProp deviceProp;
+    CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId_));
+    ApplyLaunchConfig(nbThreadGroup, nbThreadPerGroup, batchSteps, deviceProp.major, deviceProp.minor);
+
+    const uint64_t perLaunch = std::min<uint64_t>(availableCount, launchCandidateCount_);
+    if (perLaunch == 0) {
+        return 0.0;
+    }
+
+    std::vector<MaskedGPUHit> hits;
+    MaskedGPUTask task = sampleTask;
+    task.batchStart = 0ULL;
+    task.batchCount = perLaunch;
+
+    const int iterations = 4;
+    uint64_t totalTried = 0ULL;
+    auto begin = std::chrono::steady_clock::now();
+    for (int i = 0; i < iterations; i++) {
+        if (!LaunchOnSlot(0, task)) {
+            return 0.0;
+        }
+        slotActive_[0] = true;
+        uint64_t batchStart = 0ULL;
+        uint64_t batchCount = 0ULL;
+        if (!CollectFromSlot(0, hits, batchStart, batchCount, true)) {
+            return 0.0;
+        }
+        totalTried += batchCount;
+        task.batchStart += batchCount;
+        if (task.batchStart >= availableCount) {
+            task.batchStart = 0ULL;
+        }
+    }
+    auto end = std::chrono::steady_clock::now();
+    double seconds = std::chrono::duration_cast<std::chrono::duration<double> >(end - begin).count();
+    if (seconds <= 0.0) {
+        return 0.0;
+    }
+    return (double)totalTried / seconds;
+}
+
+bool MaskedGPUEngine::AutoTune(const MaskedGPUTask& sampleTask, uint64_t availableCount, bool userSpecifiedGrid) {
+    if (!fastPathV2_ || !initialised_) {
+        return true;
+    }
+
+    std::vector<uint32_t> batchCandidates;
+    if (requestedBatchSteps_ != 0) {
+        batchCandidates.push_back(NormalizeBatchSteps((uint32_t)requestedBatchSteps_));
+    }
+    else {
+        batchCandidates.push_back(8U);
+        batchCandidates.push_back(16U);
+        batchCandidates.push_back(32U);
+    }
+
+    std::vector<int> blockCandidates;
+    std::vector<int> groupCandidates;
+    if (userSpecifiedGrid) {
+        blockCandidates.push_back(nbThreadPerGroup_);
+        groupCandidates.push_back(nbThreadGroup_);
+    }
+    else {
+        blockCandidates.push_back(128);
+        blockCandidates.push_back(256);
+        groupCandidates.push_back(std::max(1, smCount_ * 8));
+        groupCandidates.push_back(std::max(1, smCount_ * 12));
+        groupCandidates.push_back(std::max(1, smCount_ * 16));
+    }
+
+    if (!autotuneEnabled_) {
+        if (requestedBatchSteps_ == 0) {
+            cudaDeviceProp deviceProp;
+            CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId_));
+            ApplyLaunchConfig(groupCandidates[0], blockCandidates[0], kDefaultFastBatchSteps, deviceProp.major, deviceProp.minor);
+        }
+        return true;
+    }
+
+    cudaDeviceProp deviceProp;
+    CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId_));
+
+    double bestRate = -1.0;
+    int bestGroups = nbThreadGroup_;
+    int bestBlock = nbThreadPerGroup_;
+    uint32_t bestBatchSteps = batchSteps_;
+
+    for (size_t gi = 0; gi < groupCandidates.size(); gi++) {
+        for (size_t bi = 0; bi < blockCandidates.size(); bi++) {
+            for (size_t si = 0; si < batchCandidates.size(); si++) {
+                double rate = BenchmarkConfig(sampleTask, availableCount, groupCandidates[gi], blockCandidates[bi], batchCandidates[si]);
+                if (rate > bestRate) {
+                    bestRate = rate;
+                    bestGroups = groupCandidates[gi];
+                    bestBlock = blockCandidates[bi];
+                    bestBatchSteps = batchCandidates[si];
+                }
+            }
+        }
+    }
+
+    ApplyLaunchConfig(bestGroups, bestBlock, bestBatchSteps, deviceProp.major, deviceProp.minor);
     return true;
 }

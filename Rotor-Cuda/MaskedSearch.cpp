@@ -29,6 +29,12 @@ namespace {
 static const uint64_t kTaskHardCap = 1ULL << 20;
 static const uint64_t kAttemptFlushThreshold = 4096ULL;
 static const char* kSample41Prefix = "D0AC934BA9987E529BF3150373B63BD06849D740A";
+static const int kMaskedGpuRuleDim = 17;
+static const int kMaskedGpuRuleStateCount = kMaskedGpuRuleDim * kMaskedGpuRuleDim;
+static const int kMaskedGpuCmpStateCount = 3;
+static const int kMaskedGpuSegmentComboCapV1 = 64;
+static const int kMaskedGpuSegmentComboCapV2 = 243;
+static const int kMaskedGpuSegmentComboCapMax = kMaskedGpuSegmentComboCapV2;
 
 char HexCharUpper(int value) {
     static const char* kHex = "0123456789ABCDEF";
@@ -238,6 +244,26 @@ int ReadEnvIntOrDefault(const char* name, int defaultValue) {
         return defaultValue;
     }
     return static_cast<int>(parsed);
+}
+
+std::string ReadEnvStringOrDefault(const char* name, const std::string& defaultValue) {
+    const char* value = std::getenv(name);
+    if (value == NULL || *value == '\0') {
+        return defaultValue;
+    }
+    return std::string(value);
+}
+
+int PackMaskedRuleState(int last2, int last1) {
+    return ((last2 + 1) * kMaskedGpuRuleDim) + (last1 + 1);
+}
+
+size_t MaskedRuleTransitionIndex(size_t segment, size_t combo, int state) {
+    return (((segment * (size_t)kMaskedGpuSegmentComboCapMax) + combo) * (size_t)kMaskedGpuRuleStateCount) + (size_t)state;
+}
+
+size_t MaskedBoundTransitionIndex(size_t segment, size_t combo, int cmpState) {
+    return (((segment * (size_t)kMaskedGpuSegmentComboCapMax) + combo) * (size_t)kMaskedGpuCmpStateCount) + (size_t)(cmpState + 1);
 }
 
 int Popcount16(uint16_t value) {
@@ -616,6 +642,12 @@ public:
         , maxSupportedUnique_(16)
         , gpuProfileIgnored_(false)
         , gpuStrictTailModeIgnored_(false)
+        , gpuFastPathMode_("auto")
+        , gpuFastPathV2_(false)
+        , gpuUserGridSpecified_(false)
+        , gpuAutoTune_(true)
+        , gpuRequestedBatchSteps_(0)
+        , gpuSegmentComboCap_(kMaskedGpuSegmentComboCapV1)
         , gpuResidualCount_(1)
         , taskCountClipped_(false)
         , found_(false)
@@ -632,6 +664,7 @@ public:
         MaskedGPUEngine* gpuEngine = NULL;
         if (config_.useGpu) {
             gpuEngine = CreateGpuEngine();
+            AutoTuneGpuEngine(*gpuEngine);
         }
 #else
         if (config_.useGpu) {
@@ -717,11 +750,12 @@ private:
             throw std::runtime_error(oss.str());
         }
         if (config_.useGpu && suffixLen_ > 23) {
-            throw std::runtime_error("Masked GPU V1 currently supports at most 23 suffix hex chars");
+            throw std::runtime_error("Masked GPU currently supports at most 23 suffix hex chars");
         }
 
         prefixInfo_ = AnalyzePrefix(prefix_);
         ResolveProbabilityProfile();
+        ResolveGpuExecutionMode();
 
         secp_.Init();
 
@@ -839,6 +873,55 @@ private:
                 maxSupportedUnique_ = std::max(maxSupportedUnique_, static_cast<int>(i));
             }
         }
+    }
+
+    void ResolveGpuExecutionMode() {
+        gpuFastPathMode_ = ToLower(Trim(ReadEnvStringOrDefault("ROTOR_MASKED_GPU_FASTPATH", "auto")));
+        if (gpuFastPathMode_.empty()) {
+            gpuFastPathMode_ = "auto";
+        }
+        if (gpuFastPathMode_ != "auto" && gpuFastPathMode_ != "on" && gpuFastPathMode_ != "off") {
+            throw std::runtime_error("ROTOR_MASKED_GPU_FASTPATH must be auto, on, or off");
+        }
+
+        std::string batchSpec = ToLower(Trim(ReadEnvStringOrDefault("ROTOR_MASKED_GPU_BATCH_STEPS", "auto")));
+        if (batchSpec.empty() || batchSpec == "auto") {
+            gpuRequestedBatchSteps_ = 0;
+        }
+        else {
+            char* end = NULL;
+            long parsed = std::strtol(batchSpec.c_str(), &end, 10);
+            if (end == batchSpec.c_str() || *end != '\0' || (parsed != 8 && parsed != 16 && parsed != 32)) {
+                throw std::runtime_error("ROTOR_MASKED_GPU_BATCH_STEPS must be auto, 8, 16, or 32");
+            }
+            gpuRequestedBatchSteps_ = static_cast<int>(parsed);
+        }
+
+        gpuAutoTune_ = ReadEnvIntOrDefault("ROTOR_MASKED_GPU_AUTOTUNE", 1) != 0;
+        gpuUserGridSpecified_ = (config_.gridSize.size() >= 2 && config_.gridSize[0] > 0 && config_.gridSize[1] > 0);
+
+        bool eligible = config_.useGpu &&
+            searchMode_ == SEARCH_MODE_SA &&
+            coinType_ == COIN_BTC &&
+            compMode_ == SEARCH_UNCOMPRESSED &&
+            suffixLen_ == 23 &&
+            ToLower(Trim(config_.probabilityProfile)) == "none";
+
+        if (gpuFastPathMode_ == "on" && !eligible) {
+            throw std::runtime_error("ROTOR_MASKED_GPU_FASTPATH=on requires BTC single-address uncompressed mode, 23-char suffix, and --prob-profile none");
+        }
+
+        gpuFastPathV2_ = eligible && gpuFastPathMode_ != "off";
+        if (gpuFastPathV2_) {
+            gpuSegmentComboCap_ = kMaskedGpuSegmentComboCapV2;
+            return;
+        }
+
+        int segmentCap = ReadEnvIntOrDefault("ROTOR_MASKED_GPU_SEGMENT_CAP", kMaskedGpuSegmentComboCapV1);
+        if (segmentCap <= 0 || segmentCap > kMaskedGpuSegmentComboCapV1) {
+            segmentCap = kMaskedGpuSegmentComboCapV1;
+        }
+        gpuSegmentComboCap_ = segmentCap;
     }
 
     void BuildChoices() {
@@ -1277,16 +1360,28 @@ private:
     }
 
 #ifdef WITHGPU
-    MaskedGPUCharsetConfig BuildGpuCharsetConfig() {
+    MaskedGPUCharsetConfig BuildGpuCharsetConfig(MaskedGPUFastPathTables* fastTables) {
         MaskedGPUCharsetConfig cfg = {};
         cfg.suffixLen = static_cast<uint32_t>(suffixLen_);
         cfg.compMode = static_cast<uint32_t>(compMode_);
         cfg.coinType = static_cast<uint32_t>(coinType_);
         cfg.forbidTripleSame = config_.forbidTripleSame ? 1 : 0;
         cfg.forbidTripleRun = config_.forbidTripleRun ? 1 : 0;
+        cfg.gpuMode = gpuFastPathV2_ ? MASKED_GPU_MODE_V2_FASTPATH : MASKED_GPU_MODE_V1;
+        cfg.requestedBatchSteps = static_cast<uint8_t>(gpuRequestedBatchSteps_);
         cfg.gpuStartPos = static_cast<uint8_t>(taskDepth_);
-        cfg.segmentComboCap = MASKED_GPU_SEGMENT_COMBO_CAP;
+        cfg.segmentComboCap = static_cast<uint8_t>(gpuSegmentComboCap_);
+        cfg.autotune = gpuAutoTune_ ? 1 : 0;
         std::memcpy(cfg.target, &targetBytes_[0], 20);
+
+        if (gpuFastPathV2_ && fastTables != NULL) {
+            fastTables->ruleTransition.assign(
+                (size_t)MASKED_GPU_MAX_SEGMENTS * (size_t)MASKED_GPU_SEGMENT_COMBO_CAP * (size_t)MASKED_GPU_RULE_STATE_COUNT,
+                static_cast<uint16_t>(0xFFFFU));
+            fastTables->boundTransition.assign(
+                (size_t)MASKED_GPU_MAX_SEGMENTS * (size_t)MASKED_GPU_SEGMENT_COMBO_CAP * (size_t)MASKED_GPU_CMP_STATE_COUNT,
+                static_cast<int8_t>(2));
+        }
 
         for (size_t pos = 0; pos < suffixLen_; pos++) {
             cfg.radices[pos] = static_cast<uint8_t>(choices_[pos].size());
@@ -1361,10 +1456,7 @@ private:
             }
         }
 
-        int segmentCap = ReadEnvIntOrDefault("ROTOR_MASKED_GPU_SEGMENT_CAP", MASKED_GPU_SEGMENT_COMBO_CAP);
-        if (segmentCap <= 0 || segmentCap > MASKED_GPU_SEGMENT_COMBO_CAP) {
-            segmentCap = MASKED_GPU_SEGMENT_COMBO_CAP;
-        }
+        int segmentCap = gpuSegmentComboCap_;
         cfg.segmentComboCap = static_cast<uint8_t>(segmentCap);
 
         size_t segmentIndex = 0;
@@ -1448,6 +1540,74 @@ private:
                         cfg.segmentPointY[segmentIndex][combo][k] = segmentPoint.y.bits64[k];
                     }
                 }
+
+                if (gpuFastPathV2_ && fastTables != NULL) {
+                    int segmentCmp = 0;
+                    for (size_t rel = 0; rel < segLen; rel++) {
+                        uint8_t value = cfg.segmentValues[segmentIndex][combo][rel];
+                        uint8_t bound = cfg.bound[start + rel];
+                        if (value < bound) {
+                            segmentCmp = -1;
+                            break;
+                        }
+                        if (value > bound) {
+                            segmentCmp = 1;
+                            break;
+                        }
+                    }
+
+                    for (int cmpState = -1; cmpState <= 1; cmpState++) {
+                        int8_t nextCmp = static_cast<int8_t>(2);
+                        if (cmpState < 0) {
+                            nextCmp = -1;
+                        }
+                        else if (cmpState == 0) {
+                            if (segmentCmp > 0) {
+                                nextCmp = static_cast<int8_t>(2);
+                            }
+                            else if (segmentCmp < 0) {
+                                nextCmp = -1;
+                            }
+                            else {
+                                nextCmp = 0;
+                            }
+                        }
+                        fastTables->boundTransition[MaskedBoundTransitionIndex(segmentIndex, combo, cmpState)] = nextCmp;
+                    }
+
+                    for (int last2 = -1; last2 < 16; last2++) {
+                        for (int last1 = -1; last1 < 16; last1++) {
+                            int currentLast2 = last2;
+                            int currentLast1 = last1;
+                            bool valid = true;
+
+                            for (size_t rel = 0; rel < segLen; rel++) {
+                                int value = static_cast<int>(cfg.segmentValues[segmentIndex][combo][rel]);
+                                if (config_.forbidTripleSame && currentLast2 == value && currentLast1 == value) {
+                                    valid = false;
+                                    break;
+                                }
+                                if (config_.forbidTripleRun && currentLast2 >= 0 && currentLast1 >= 0) {
+                                    if ((currentLast2 + 1) == currentLast1 && (currentLast1 + 1) == value) {
+                                        valid = false;
+                                        break;
+                                    }
+                                    if ((currentLast2 - 1) == currentLast1 && (currentLast1 - 1) == value) {
+                                        valid = false;
+                                        break;
+                                    }
+                                }
+                                currentLast2 = currentLast1;
+                                currentLast1 = value;
+                            }
+
+                            fastTables->ruleTransition[
+                                MaskedRuleTransitionIndex(segmentIndex, combo, PackMaskedRuleState(last2, last1))] =
+                                valid ? static_cast<uint16_t>(PackMaskedRuleState(currentLast2, currentLast1))
+                                      : static_cast<uint16_t>(0xFFFFU);
+                        }
+                    }
+                }
             }
 
             segmentIndex++;
@@ -1494,26 +1654,63 @@ private:
         return CheckCandidate(keyHex, pub, eval);
     }
 
+    bool ProcessGpuHits(const std::vector<MaskedGPUHit>& hits, const std::string& keyHex, uint64_t batchStart) {
+        for (size_t i = 0; i < hits.size() && !ShouldStop(); i++) {
+            std::string candidateHex = keyHex;
+            FillKeyFromIndex(candidateHex, taskDepth_, batchStart + hits[i].localIndex);
+            if (VerifyGpuCandidate(candidateHex)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     MaskedGPUEngine* CreateGpuEngine() {
         if (config_.gpuIds.empty()) {
-            throw std::runtime_error("Masked GPU V1 requires exactly one gpu id");
+            throw std::runtime_error("Masked GPU search requires exactly one gpu id");
         }
 
         int gridX = -1;
-        int gridY = 128;
+        int gridY = gpuFastPathV2_ ? 256 : 128;
         if (config_.gridSize.size() >= 2) {
             gridX = config_.gridSize[0];
             gridY = config_.gridSize[1];
         }
 
-        MaskedGPUCharsetConfig cfg = BuildGpuCharsetConfig();
-        MaskedGPUEngine* engine = new MaskedGPUEngine(config_.gpuIds[0], gridX, gridY, 256, cfg);
+        MaskedGPUFastPathTables fastTables;
+        MaskedGPUCharsetConfig cfg = BuildGpuCharsetConfig(gpuFastPathV2_ ? &fastTables : NULL);
+        MaskedGPUEngine* engine = new MaskedGPUEngine(config_.gpuIds[0], gridX, gridY, 256, cfg, fastTables);
         if (!engine->IsInitialised()) {
             delete engine;
             throw std::runtime_error("Unable to initialize masked GPU engine");
         }
         gpuDeviceName_ = engine->GetDeviceName();
         return engine;
+    }
+
+    void AutoTuneGpuEngine(MaskedGPUEngine& engine) {
+        if (!gpuFastPathV2_) {
+            return;
+        }
+
+        Point current;
+        current.Clear();
+        bool pointSet = false;
+        bool hasNonZero = prefixHasNonZero_;
+        int cmpState = prefixCmpState_;
+        TailState state;
+        if (prefixPointSet_) {
+            current = prefixPoint_;
+            pointSet = true;
+        }
+
+        MaskedGPUTask task = BuildGpuTask(current, pointSet, hasNonZero, cmpState, state);
+        task.batchStart = 0ULL;
+        task.batchCount = std::min<uint64_t>(gpuResidualCount_, std::max<uint64_t>(1ULL, engine.GetLaunchCandidateCount()));
+        if (!engine.AutoTune(task, gpuResidualCount_, gpuUserGridSpecified_)) {
+            throw std::runtime_error("Unable to auto-tune masked GPU fastpath");
+        }
+        gpuDeviceName_ = engine.GetDeviceName();
     }
 
     bool LaunchGpuTask(const std::string& keyHex,
@@ -1526,12 +1723,47 @@ private:
         MaskedGPUTask task = BuildGpuTask(current, pointSet, hasNonZero, cmpState, state);
         std::vector<MaskedGPUHit> hits;
         uint64_t launched = 0;
-        uint64_t batchSpan = static_cast<uint64_t>(engine.GetNbThread());
+        uint64_t batchSpan = engine.IsFastPathV2()
+            ? engine.GetLaunchCandidateCount()
+            : static_cast<uint64_t>(engine.GetNbThread());
         if (batchSpan == 0) {
             throw std::runtime_error("Masked GPU engine returned zero thread capacity");
         }
 
         nextTask_.fetch_add(1);
+
+        if (engine.IsFastPathV2()) {
+            while (launched < gpuResidualCount_ && !ShouldStop()) {
+                task.batchStart = launched;
+                task.batchCount = std::min<uint64_t>(batchSpan, gpuResidualCount_ - launched);
+                if (engine.SubmitBatch(task)) {
+                    attempts_.fetch_add(task.batchCount);
+                    launched += task.batchCount;
+                    continue;
+                }
+
+                uint64_t batchStart = 0ULL;
+                uint64_t batchCount = 0ULL;
+                if (!engine.CollectBatch(hits, batchStart, batchCount, true)) {
+                    throw std::runtime_error("Masked GPU fastpath batch collection failed");
+                }
+                if (ProcessGpuHits(hits, keyHex, batchStart)) {
+                    return true;
+                }
+            }
+
+            while (engine.HasPendingBatches() && !ShouldStop()) {
+                uint64_t batchStart = 0ULL;
+                uint64_t batchCount = 0ULL;
+                if (!engine.CollectBatch(hits, batchStart, batchCount, true)) {
+                    throw std::runtime_error("Masked GPU fastpath final batch collection failed");
+                }
+                if (ProcessGpuHits(hits, keyHex, batchStart)) {
+                    return true;
+                }
+            }
+            return ShouldStop();
+        }
 
         while (launched < gpuResidualCount_ && !ShouldStop()) {
             task.batchStart = launched;
@@ -1541,12 +1773,8 @@ private:
             }
             attempts_.fetch_add(task.batchCount);
 
-            for (size_t i = 0; i < hits.size() && !ShouldStop(); i++) {
-                std::string candidateHex = keyHex;
-                FillKeyFromIndex(candidateHex, taskDepth_, launched + hits[i].localIndex);
-                if (VerifyGpuCandidate(candidateHex)) {
-                    return true;
-                }
+            if (ProcessGpuHits(hits, keyHex, launched)) {
+                return true;
             }
             launched += task.batchCount;
         }
@@ -1838,7 +2066,11 @@ private:
     }
 
     void PrintStartInfo() const {
-        std::printf("  MASK MODE    : SUFFIX CHARSETS (%s)\n", config_.useGpu ? "GPU V1" : "CPU");
+        const char* maskMode = "CPU";
+        if (config_.useGpu) {
+            maskMode = gpuFastPathV2_ ? "GPU V2 FASTPATH" : "GPU V1";
+        }
+        std::printf("  MASK MODE    : SUFFIX CHARSETS (%s)\n", maskMode);
         std::printf("  COIN TYPE    : %s\n", CoinName(coinType_));
         if (coinType_ == COIN_BTC) {
             std::printf("  COMP MODE    : %s\n", CompModeName(compMode_));
@@ -1970,6 +2202,12 @@ private:
     int maxSupportedUnique_;
     bool gpuProfileIgnored_;
     bool gpuStrictTailModeIgnored_;
+    std::string gpuFastPathMode_;
+    bool gpuFastPathV2_;
+    bool gpuUserGridSpecified_;
+    bool gpuAutoTune_;
+    int gpuRequestedBatchSteps_;
+    int gpuSegmentComboCap_;
     std::string gpuDeviceName_;
     uint64_t gpuResidualCount_;
     bool taskCountClipped_;
