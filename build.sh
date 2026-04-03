@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+
+cd "$PROJECT_DIR"
 
 GPU_BUILD="${GPU_BUILD:-1}"
 CCAP="${CCAP:-auto}"
@@ -73,9 +76,9 @@ if [[ "$GPU_BUILD" == "1" ]]; then
 [*] If runtime still says "no kernel image is available for execution on the device",
     your CCAP is wrong for the target GPU.
     Rebuild explicitly, e.g.:
-      CCAP=75 ./build.sh   # T4 / RTX 20xx / GTX 16xx
-      CCAP=86 ./build.sh   # RTX 30xx / A10 / A40
-      CCAP=89 ./build.sh   # RTX 40xx
-      CCAP=90 ./build.sh   # H100 / H20 class
+      CCAP=75 "$SCRIPT_DIR/build.sh"   # T4 / RTX 20xx / GTX 16xx
+      CCAP=86 "$SCRIPT_DIR/build.sh"   # RTX 30xx / A10 / A40
+      CCAP=89 "$SCRIPT_DIR/build.sh"   # RTX 40xx
+      CCAP=90 "$SCRIPT_DIR/build.sh"   # H100 / H20 class
 EOF
 fi

@@ -5,13 +5,17 @@
 # Patch  : destructive clean with safety checks
 #---------------------------------------------------------------------
 
-SRC = Base58.cpp IntGroup.cpp Main.cpp MaskedSearch.cpp Bloom.cpp Random.cpp Sort.cpp \
-      Timer.cpp Int.cpp IntMod.cpp Point.cpp SECP256K1.cpp \
-      Rotor.cpp GPU/GPUGenerate.cpp hash/ripemd160.cpp \
-      hash/sha256.cpp hash/sha512.cpp hash/ripemd160_sse.cpp \
-      hash/sha256_sse.cpp hash/keccak160.cpp GmpUtil.cpp CmdParse.cpp
-
+SRCDIR = Rotor-Cuda
 OBJDIR = obj
+TARGET = Rotor
+
+SRC = $(SRCDIR)/Base58.cpp $(SRCDIR)/IntGroup.cpp $(SRCDIR)/Main.cpp $(SRCDIR)/MaskedSearch.cpp \
+      $(SRCDIR)/Bloom.cpp $(SRCDIR)/Random.cpp $(SRCDIR)/Sort.cpp $(SRCDIR)/Timer.cpp \
+      $(SRCDIR)/Int.cpp $(SRCDIR)/IntMod.cpp $(SRCDIR)/Point.cpp $(SRCDIR)/SECP256K1.cpp \
+      $(SRCDIR)/Rotor.cpp $(SRCDIR)/GPU/GPUGenerate.cpp $(SRCDIR)/hash/ripemd160.cpp \
+      $(SRCDIR)/hash/sha256.cpp $(SRCDIR)/hash/sha512.cpp $(SRCDIR)/hash/ripemd160_sse.cpp \
+      $(SRCDIR)/hash/sha256_sse.cpp $(SRCDIR)/hash/keccak160.cpp $(SRCDIR)/GmpUtil.cpp \
+      $(SRCDIR)/CmdParse.cpp
 
 ifdef gpu
 
@@ -42,16 +46,16 @@ ccap       = $(shell echo $(CCAP) | tr -d '.')
 
 ifdef gpu
 ifdef debug
-CXXFLAGS   = -DWITHGPU -m64  -mssse3 -Wno-write-strings -g -I. -I$(CUDA)/include
+CXXFLAGS   = -DWITHGPU -m64  -mssse3 -Wno-write-strings -g -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include
 else
-CXXFLAGS   =  -DWITHGPU -m64 -mssse3 -Wno-write-strings -O2 -I. -I$(CUDA)/include
+CXXFLAGS   =  -DWITHGPU -m64 -mssse3 -Wno-write-strings -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include
 endif
 LFLAGS     = -lgmp -lpthread -L$(CUDA)/lib64 -lcudart
 else
 ifdef debug
-CXXFLAGS   = -m64 -mssse3 -Wno-write-strings -g -I. -I$(CUDA)/include
+CXXFLAGS   = -m64 -mssse3 -Wno-write-strings -g -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include
 else
-CXXFLAGS   =  -m64 -mssse3 -Wno-write-strings -O2 -I. -I$(CUDA)/include
+CXXFLAGS   =  -m64 -mssse3 -Wno-write-strings -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include
 endif
 LFLAGS     = -lgmp -lpthread
 endif
@@ -61,28 +65,28 @@ endif
 
 ifdef gpu
 ifdef debug
-$(OBJDIR)/GPU/GPUEngine.o: GPU/GPUEngine.cu
-	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c GPU/GPUEngine.cu
+$(OBJDIR)/GPU/GPUEngine.o: $(SRCDIR)/GPU/GPUEngine.cu
+	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c $(SRCDIR)/GPU/GPUEngine.cu
 
-$(OBJDIR)/GPU/MaskedGPUEngine.o: GPU/MaskedGPUEngine.cu
-	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c GPU/MaskedGPUEngine.cu
+$(OBJDIR)/GPU/MaskedGPUEngine.o: $(SRCDIR)/GPU/MaskedGPUEngine.cu
+	$(NVCC) -G -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -g -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c $(SRCDIR)/GPU/MaskedGPUEngine.cu
 else
-$(OBJDIR)/GPU/GPUEngine.o: GPU/GPUEngine.cu
-	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c GPU/GPUEngine.cu
+$(OBJDIR)/GPU/GPUEngine.o: $(SRCDIR)/GPU/GPUEngine.cu
+	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/GPUEngine.o -c $(SRCDIR)/GPU/GPUEngine.cu
 
-$(OBJDIR)/GPU/MaskedGPUEngine.o: GPU/MaskedGPUEngine.cu
-	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c GPU/MaskedGPUEngine.cu
+$(OBJDIR)/GPU/MaskedGPUEngine.o: $(SRCDIR)/GPU/MaskedGPUEngine.cu
+	$(NVCC) -maxrregcount=0 --ptxas-options=-v --compile --compiler-options -fPIC -ccbin $(CXXCUDA) -m64 -O2 -I$(SRCDIR) -I$(SRCDIR)/GPU -I$(SRCDIR)/hash -I$(CUDA)/include -gencode=arch=compute_$(ccap),code=sm_$(ccap) -o $(OBJDIR)/GPU/MaskedGPUEngine.o -c $(SRCDIR)/GPU/MaskedGPUEngine.cu
 endif
 endif
 
-$(OBJDIR)/%.o : %.cpp
+$(OBJDIR)/%.o : $(SRCDIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
-all: Rotor
+all: $(TARGET)
 
-Rotor: $(OBJET)
+$(TARGET): $(OBJET)
 	@echo Making Rotor...
-	$(CXX) $(OBJET) $(LFLAGS) -o Rotor
+	$(CXX) $(OBJET) $(LFLAGS) -o $(TARGET)
 
 $(OBJET): | $(OBJDIR) $(OBJDIR)/GPU $(OBJDIR)/hash
 
@@ -99,7 +103,7 @@ $(OBJDIR)/hash: $(OBJDIR)
 # Destructive clean: delete obj dir completely and remove Rotor binary
 # with safety checks to avoid accidental rm -rf /
 clean:
-	@echo "Running destructive clean: deleting $(OBJDIR) and Rotor (if present)..."
+	@echo "Running destructive clean: deleting $(OBJDIR) and $(TARGET) (if present)..."
 	@sh -c '\
 		if [ -z "$(OBJDIR)" ] || [ "$(OBJDIR)" = "/" ] || [ "$(OBJDIR)" = "." ]; then \
 			echo "ERROR: unsafe OBJDIR=$(OBJDIR) — aborting clean"; exit 1; \
@@ -111,7 +115,7 @@ clean:
 			echo "OBJDIR $(OBJDIR) does not exist, skipping rm -rf"; \
 		fi; \
 		# Remove binary if present \
-		if [ -f "Rotor" ]; then echo "Removing : Rotor"; rm -f Rotor; else echo "No Rotor found"; fi; \
+		if [ -f "$(TARGET)" ]; then echo "Removing : $(TARGET)"; rm -f "$(TARGET)"; else echo "No $(TARGET) found"; fi; \
 		# Recreate minimal obj tree for next build \
 		mkdir -p "$(OBJDIR)"; mkdir -p "$(OBJDIR)"/GPU; mkdir -p "$(OBJDIR)"/hash; \
 		echo "Destructive clean complete."; \
@@ -131,6 +135,6 @@ distclean: clean
 
 veryclean: distclean
 	@echo "Very clean: removing also binary"
-	@rm -f Rotor
+	@rm -f $(TARGET)
 
 # -------------------------------------------------------------------
