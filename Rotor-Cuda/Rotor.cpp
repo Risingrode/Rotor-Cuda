@@ -3252,7 +3252,7 @@ void Rotor::Search(int nbThread, std::vector<int> gpuId, std::vector<int> gridSi
 		}
 		
 		if (rKey > 0) {
-			if ((count - lastrKey) > (1000000000 * rKey)) {
+			if ((count - lastrKey) > (10000 * rKey)) {
 				// rKey request
 				rKeyRequest(params);
 				lastrKey = count;
